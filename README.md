@@ -9,7 +9,12 @@ coaches the player.
 
 ## Unity version
 
-**Everyone must use exactly this version:** `6000.3.25f1`
+**Use Unity 6.3 LTS — i.e. any `6000.3.x` patch.**
+
+- Preferred exact version: **`6000.3.25f1`**.
+- If your machine cannot install that patch, **any other `6000.3.x` LTS patch is fine**.
+  Open the project, let Unity update `ProjectVersion.txt`, and commit that change on its own.
+- Do **not** use Unity 6.2, 6.4 or 6.5.
 
 Modules needed: **Android Build Support**, **OpenJDK**, **Android SDK & NDK Tools**.
 Target platform: **Meta Quest 3** (Meta Quest build profile, OpenXR + Meta XR SDK).

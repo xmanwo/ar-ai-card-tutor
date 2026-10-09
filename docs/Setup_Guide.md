@@ -10,7 +10,8 @@ Stages 1, 3, 9 and 10.
 
 ## Five golden rules (most problems come from breaking one of these)
 
-1. Everyone uses the **exact same Unity version**, written in the README (`6000.3.25f1`).
+1. Everyone uses the **same Unity line** — **Unity 6.3 LTS (`6000.3.x`)**, preferably
+   `6000.3.25f1` (written in the README). Any other `6000.3.x` patch is acceptable.
 2. **Never commit Unity's `Library/` folder.** The `.gitignore` handles this for you.
 3. **Always commit a `.meta` file together with its asset.** Without it, links between
    files break for everyone else.
@@ -38,8 +39,9 @@ Stages 1, 3, 9 and 10.
 ## Stage 1 – Install the tools
 
 1. **Unity Hub** from unity.com/download. Sign in with a free Unity account.
-2. **Unity Editor `6000.3.25f1`** (Unity 6.3 LTS). In Unity Hub → **Installs → Install
-   Editor**, pick that exact version and tick:
+2. **Unity Editor `6000.3.25f1`** (Unity 6.3 LTS). If you cannot install this exact patch,
+   any other **`6000.3.x`** patch works. In Unity Hub → **Installs → Install
+   Editor**, pick that version and tick:
    - **Android Build Support**
      - **OpenJDK** (under Android Build Support)
      - **Android SDK & NDK Tools** (under Android Build Support)
@@ -112,7 +114,7 @@ Unity's generated files are ignored from the very first Unity commit.
 
 ## Stage 6 – Create and configure the Unity project (repo owner)
 
-1. Unity Hub → **New project** → editor version `6000.3.25f1` → template **Mixed Reality**
+1. Unity Hub → **New project** → editor version `6000.3.25f1` (or another `6000.3.x`) → template **Mixed Reality**
    (if your Hub names it slightly differently, pick the Mixed Reality template — **not**
    the "Mixed Reality multiplayer tabletop" one, which adds a networking stack we don't need).
    - Project name: `AICardTutor`
@@ -178,8 +180,8 @@ Only after the first pushes to `main` are done:
    `E:\vrar\tutor1\dev\ar-ai-card-tutor`.
 3. Open: Unity Hub → Add → Add project from disk → choose
    `E:\vrar\tutor1\dev\ar-ai-card-tutor\unity\AICardTutor` (the folder that contains `Assets`).
-   If Hub says the editor version is missing, install `6000.3.25f1`. Do not pick a
-   different version or upgrade the project.
+   If Hub says the editor version is missing, install a **`6000.3.x`** patch (preferably
+   `6000.3.25f1`). Do not jump to 6.2 / 6.4 / 6.5.
 4. The first open takes several minutes while Unity builds its `Library` folder.
 5. Make your own test scene: right-click `Assets/_Project/Scenes/Sandbox` →
    Create → Scene → name it after your GitHub username.
@@ -219,7 +221,7 @@ there; `.gitignore` excludes `secrets.json` but keeps the empty template.
 | `Library/` files appear in the change list | `.gitignore` not in the repo root | Move it to the root. If already committed: `git rm -r --cached unity/AICardTutor/Library`, then commit |
 | "Missing script" or pink objects after pulling | Someone forgot to commit `.meta` files | Ask them to commit the missing `.meta` files; never create new ones yourself |
 | Cloning/pulling gets slow | Large files committed by mistake | Keep `data/`, videos and `.apk` on the shared drive |
-| Unity Hub says the editor version is missing | Different Unity version | Install `6000.3.25f1`; never upgrade the project alone |
+| Unity Hub says the editor version is missing | Different Unity version | Install a `6000.3.x` patch (preferably `6000.3.25f1`); don't jump Unity lines |
 | Quest does not appear / build fails with Gradle or SDK errors | Android modules missing, or unusual project path | Re-add the Android modules in Unity Hub; use a short path with no spaces |
 | Merge conflict in a `.unity` / `.prefab` file | Two people edited the same scene | Keep one version, redo the smaller change, follow the one-editor-per-scene rule |
 | Push rejected because a file is too large | GitHub blocks files over 100 MB | Do not commit it; move it to the shared drive |
