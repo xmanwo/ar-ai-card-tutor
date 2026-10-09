@@ -28,13 +28,22 @@ Target platform: **Meta Quest 3** (Meta Quest build profile, OpenXR + Meta XR SD
 | `docs/` | Setup guide, meeting notes, sketches, user-study plan |
 | `data/` | Not in Git – only a README with the shared-drive link |
 
+## Team and ownership
+
+| Person | Role | Owns |
+| --- | --- | --- |
+| `<github-username>` | <role> | e.g. `Scripts/Rules`, `Main.unity` |
+| `<github-username>` | <role> | e.g. `Scripts/AI` |
+| `<github-username>` | <role> | e.g. `Scripts/Cards` |
+| `<github-username>` | <role> | e.g. `Scripts/UI` |
+
 ## Rules
 
 1. Same Unity version for everyone.
 2. Never commit `Library/`.
 3. Always commit `.meta` files together with their assets.
-4. Only one person edits a given scene at a time; `Main.unity` is edited by one person at a time.
-5. Work on a branch (`feature/topic`), and merge into `main` through a pull request
+4. One person edits a scene at a time; `Main.unity` has one owner.
+5. Work on a branch (`name/topic`, where `name` is your GitHub username), and merge into `main` through a pull request
    (**at least 1 approval required**). Do not push directly to `main`.
 6. No Git LFS: photos, videos and `.apk` builds go on the shared drive, never in Git.
 

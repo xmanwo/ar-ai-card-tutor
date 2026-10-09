@@ -5,8 +5,8 @@ Meta Quest 3.
 
 All paths and menu names below are for **Windows**.
 
-Stages 2 and 4–8 prepare the repository and are done **once**. Stages 1, 3, 9 and 10 are
-done on **each developer's computer**.
+**Roles:** one person (the **repo owner**) does Stages 2 and 4–8. Everyone else does
+Stages 1, 3, 9 and 10.
 
 ## Five golden rules (most problems come from breaking one of these)
 
@@ -14,25 +14,24 @@ done on **each developer's computer**.
 2. **Never commit Unity's `Library/` folder.** The `.gitignore` handles this for you.
 3. **Always commit a `.meta` file together with its asset.** Without it, links between
    files break for everyone else.
-4. **Only one person edits a given scene at a time.** `Main.unity` is edited by one person
-   at a time.
+4. **Only one person edits a given scene at a time.** `Main.unity` has one owner.
 5. The `main` branch must always open and build. Work on your own branch and merge
    through a **pull request with at least 1 approval**.
 
 ## Stage overview
 
-| # | What | When |
+| # | What | Who |
 | --- | --- | --- |
-| 1 | Install the tools | each computer |
-| 2 | Create the GitHub repository | once |
-| 3 | Clone the repository | each computer |
-| 4 | Create the folder structure | once |
-| 5 | First commit (skeleton only) | once |
-| 6 | Create and configure the Unity project | once |
-| 7 | Second commit (Unity project) | once |
-| 8 | Add collaborators and protect `main` | once |
-| 9 | Open the project for the first time | each computer |
-| 10 | Daily workflow | each day |
+| 1 | Install the tools | Everyone |
+| 2 | Create the GitHub repository | Repo owner |
+| 3 | Clone the repository | Everyone |
+| 4 | Create the folder structure | Repo owner |
+| 5 | First commit (skeleton only) | Repo owner |
+| 6 | Create and configure the Unity project | Repo owner |
+| 7 | Second commit (Unity project) | Repo owner |
+| 8 | Add collaborators and protect `main` | Repo owner |
+| 9 | Open the project for the first time | Everyone else |
+| 10 | Daily workflow | Everyone |
 
 ---
 
@@ -60,7 +59,7 @@ done on **each developer's computer**.
 
 Check it worked: `git --version` and `git config user.name`.
 
-## Stage 2 – Create the GitHub repository (once)
+## Stage 2 – Create the GitHub repository (repo owner)
 
 1. On github.com → **New repository**.
    - **Name:** `ar-ai-card-tutor`
@@ -76,7 +75,7 @@ Check it worked: `git --version` and `git config user.name`.
 GitHub Desktop → **File → Clone repository** → `ar-ai-card-tutor` → local path
 `E:\vrar\tutor1\dev\ar-ai-card-tutor`.
 
-## Stage 4 – Create the folder structure (once)
+## Stage 4 – Create the folder structure (repo owner)
 
 One repository holds everything except the large assets. In the repository root:
 
@@ -98,7 +97,7 @@ Why it is set up this way:
 - `Library/`, `Temp/`, `Logs/` and `UserSettings/` are rebuilt by Unity on every
   computer and are never committed.
 
-## Stage 5 – First commit (skeleton only) (once)
+## Stage 5 – First commit (skeleton only) (repo owner)
 
 ```
 cd E:\vrar\tutor1\dev\ar-ai-card-tutor
@@ -111,7 +110,7 @@ git push -u origin main
 Doing this **before** the Unity project means the `.gitignore` is already in place, so
 Unity's generated files are ignored from the very first Unity commit.
 
-## Stage 6 – Create and configure the Unity project (once)
+## Stage 6 – Create and configure the Unity project (repo owner)
 
 1. Unity Hub → **New project** → editor version `6000.3.25f1` → template **Mixed Reality**
    (if your Hub names it slightly differently, pick the Mixed Reality template — **not**
@@ -147,7 +146,7 @@ Unity's generated files are ignored from the very first Unity commit.
    Product Name = `AI Card Tutor`.
 8. File → **Save Project**, then **close Unity** before the commit.
 
-## Stage 7 – Second commit (Unity project) (once)
+## Stage 7 – Second commit (Unity project) (repo owner)
 
 ```
 git add .
@@ -158,7 +157,7 @@ git push
 
 Check on github.com: there is **no Library folder** and no `.apk` files.
 
-## Stage 8 – Add collaborators and protect `main` (once)
+## Stage 8 – Add collaborators and protect `main` (repo owner)
 
 Only after the first pushes to `main` are done:
 
@@ -183,15 +182,15 @@ Only after the first pushes to `main` are done:
    different version or upgrade the project.
 4. The first open takes several minutes while Unity builds its `Library` folder.
 5. Make your own test scene: right-click `Assets/_Project/Scenes/Sandbox` →
-   Create → Scene → give it a unique name.
+   Create → Scene → name it after your GitHub username.
 
 ## Stage 10 – Daily workflow
 
 Every work session:
 1. **Get the latest.** GitHub Desktop: switch to `main` → Fetch origin → Pull origin.
    Do this with Unity closed, or Unity may need to re-import.
-2. **Make a branch:** Current branch → New branch → name it `feature/topic`
-   (e.g. `feature/rule-engine`).
+2. **Make a branch:** Current branch → New branch → name it `name/topic`, where
+   `name` is your GitHub username (e.g. `xmanwo/rule-engine`).
 3. **Work in Unity.** Save often (Ctrl+S for scenes, File → Save Project for other assets).
    Unity only writes changes to disk when you save.
 4. **Commit small pieces** with a clear message. Before committing, check the list:
@@ -199,14 +198,13 @@ Every work session:
    no scene changed by accident.
 5. **Push your branch**, then on github.com click **Compare & pull request**. Write two
    lines: what you changed and how to test it.
-6. **A reviewer approves**, then click **Merge**, and delete the branch.
+6. **One teammate reviews and approves**, then click **Merge**, and delete the branch.
 7. Everyone pulls `main` again.
 
 **Avoiding scene conflicts:** `.unity` and `.prefab` files are long text files Git cannot
-merge safely. `Main.unity` is edited by one person at a time; other features are built in
-a separate Sandbox scene, saved as a prefab, and placed into `Main.unity` by that person.
-Keep logic in scripts and settings in ScriptableObject assets (`Config/`), which merge
-much more easily.
+merge safely. `Main.unity` has one owner; others build their feature in their own Sandbox
+scene, save it as a prefab, and ask the owner to place it in `Main.unity`. Keep logic in
+scripts and settings in ScriptableObject assets (`Config/`), which merge much more easily.
 
 **Secrets:** never commit secrets — the repository is public. The AI layer needs an API
 key. Copy `Assets/StreamingAssets/secrets.example.json` to `secrets.json` and put your key
