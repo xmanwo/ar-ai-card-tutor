@@ -1,8 +1,11 @@
 # AR AI Card Tutor
 
-Mixed-reality tutor for the card game **UNO**, built for **Meta Quest 3** with Unity.
-The app uses passthrough AR: a **rules engine** decides whether a move is legal, and an
-**on-screen AI text layer** explains the game to the player.
+Mixed-reality coaching app for the **real** card game **UNO**, built for **Meta Quest 3** with Unity.
+
+Players play with **physical cards**. Using the headset camera (passthrough), the app reads
+the cards in the player's hand and the card played to the table, then a **rules engine**
+decides whether a move is legal and an **on-screen AI text layer** explains the rules and
+coaches the player.
 
 ## Unity version
 
