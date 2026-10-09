@@ -1,41 +1,42 @@
-# AR AI Card Tutor – Team Setup Guide
+# AR AI Card Tutor – Setup Guide
 
-How every team member gets the same Unity version, one shared GitHub repository, and a
-working build on a Meta Quest 3.
+How to get the same Unity version, one shared GitHub repository, and a working build on a
+Meta Quest 3.
 
-**Roles:** one person (the **repo owner**) does Stages 1–8. Everyone else does Stages 1,
-3, 9 and 10. The repo owner is also a normal developer afterwards.
+All paths and menu names below are for **Windows**.
 
-Everyone develops on **Windows**, so all paths and menu names below are for Windows.
+Stages 2 and 4–8 prepare the repository and are done **once**. Stages 1, 3, 9 and 10 are
+done on **each developer's computer**.
 
-## Five golden rules (most team problems come from breaking one of these)
+## Five golden rules (most problems come from breaking one of these)
 
 1. Everyone uses the **exact same Unity version**, written in the README (`6000.3.25f1`).
 2. **Never commit Unity's `Library/` folder.** The `.gitignore` handles this for you.
 3. **Always commit a `.meta` file together with its asset.** Without it, links between
    files break for everyone else.
-4. **Only one person edits a given scene at a time.** `Main.unity` has one owner.
+4. **Only one person edits a given scene at a time.** `Main.unity` is edited by one person
+   at a time.
 5. The `main` branch must always open and build. Work on your own branch and merge
    through a **pull request with at least 1 approval**.
 
 ## Stage overview
 
-| # | What | Who |
+| # | What | When |
 | --- | --- | --- |
-| 1 | Install the tools | Everyone |
-| 2 | Create the GitHub repository | Repo owner |
-| 3 | Clone the repository | Everyone |
-| 4 | Create the folder structure | Repo owner |
-| 5 | First commit (skeleton only) | Repo owner |
-| 6 | Create and configure the Unity project | Repo owner |
-| 7 | Second commit (Unity project) | Repo owner |
-| 8 | Invite the team and protect `main` | Repo owner |
-| 9 | Join the project | Everyone else |
-| 10 | Daily workflow | Everyone |
+| 1 | Install the tools | each computer |
+| 2 | Create the GitHub repository | once |
+| 3 | Clone the repository | each computer |
+| 4 | Create the folder structure | once |
+| 5 | First commit (skeleton only) | once |
+| 6 | Create and configure the Unity project | once |
+| 7 | Second commit (Unity project) | once |
+| 8 | Add collaborators and protect `main` | once |
+| 9 | Open the project for the first time | each computer |
+| 10 | Daily workflow | each day |
 
 ---
 
-## Stage 1 – Install the tools (everyone)
+## Stage 1 – Install the tools
 
 1. **Unity Hub** from unity.com/download. Sign in with a free Unity account.
 2. **Unity Editor `6000.3.25f1`** (Unity 6.3 LTS). In Unity Hub → **Installs → Install
@@ -59,23 +60,23 @@ Everyone develops on **Windows**, so all paths and menu names below are for Wind
 
 Check it worked: `git --version` and `git config user.name`.
 
-## Stage 2 – Create the GitHub repository (repo owner)
+## Stage 2 – Create the GitHub repository (once)
 
 1. On github.com → **New repository**.
    - **Name:** `ar-ai-card-tutor`
    - **Visibility:** Public
    - Leave **Add a README / .gitignore / license** all **unticked** – we add our own.
-2. Do **not** add collaborators or protection yet (see Stage 8).
+2. Do **not** add collaborators or branch protection yet (see Stage 8).
 
 > The repo is public, so anyone can read it, including its history. Never commit
 > anything internal, and never commit API keys or passwords.
 
-## Stage 3 – Clone the repository (everyone)
+## Stage 3 – Clone the repository
 
 GitHub Desktop → **File → Clone repository** → `ar-ai-card-tutor` → local path
 `E:\vrar\tutor1\dev\ar-ai-card-tutor`.
 
-## Stage 4 – Create the folder structure (repo owner)
+## Stage 4 – Create the folder structure (once)
 
 One repository holds everything except the large assets. In the repository root:
 
@@ -83,7 +84,7 @@ One repository holds everything except the large assets. In the repository root:
 ar-ai-card-tutor/                     ← the Git repository
 ├── .gitignore
 ├── .gitattributes
-├── README.md                         ← Unity version, how to open, who owns what
+├── README.md                         ← Unity version, how to open
 ├── docs/                             ← setup guide, meeting notes, user-study plan
 ├── data/                             ← NOT in Git: only a README with the drive link
 └── unity/
@@ -97,7 +98,7 @@ Why it is set up this way:
 - `Library/`, `Temp/`, `Logs/` and `UserSettings/` are rebuilt by Unity on every
   computer and are never committed.
 
-## Stage 5 – First commit (skeleton only) (repo owner)
+## Stage 5 – First commit (skeleton only) (once)
 
 ```
 cd E:\vrar\tutor1\dev\ar-ai-card-tutor
@@ -110,7 +111,7 @@ git push -u origin main
 Doing this **before** the Unity project means the `.gitignore` is already in place, so
 Unity's generated files are ignored from the very first Unity commit.
 
-## Stage 6 – Create and configure the Unity project (repo owner)
+## Stage 6 – Create and configure the Unity project (once)
 
 1. Unity Hub → **New project** → editor version `6000.3.25f1` → template **Mixed Reality**
    (if your Hub names it slightly differently, pick the Mixed Reality template — **not**
@@ -142,11 +143,11 @@ Unity's generated files are ignored from the very first Unity commit.
    - Version Control Mode: **Visible Meta Files**
    - Asset Serialization Mode: **Force Text**
    Both are the default in new projects; just confirm.
-7. **Name the app:** Project Settings → Player: Company Name = your group name,
+7. **Name the app:** Project Settings → Player: Company Name = the app publisher name,
    Product Name = `AI Card Tutor`.
 8. File → **Save Project**, then **close Unity** before the commit.
 
-## Stage 7 – Second commit (Unity project) (repo owner)
+## Stage 7 – Second commit (Unity project) (once)
 
 ```
 git add .
@@ -157,21 +158,21 @@ git push
 
 Check on github.com: there is **no Library folder** and no `.apk` files.
 
-## Stage 8 – Invite the team and protect `main` (repo owner)
+## Stage 8 – Add collaborators and protect `main` (once)
 
 Only after the first pushes to `main` are done:
 
-1. Settings → **Collaborators → Add people** → enter each teammate's GitHub username.
+1. Settings → **Collaborators → Add people** → enter each collaborator's GitHub username.
    They must accept the email invitation.
 2. Settings → **Branches** (or Rules → Rulesets) → add a rule for `main`:
    - **Require a pull request before merging**
    - **Require 1 approval**
    Branch rules are free on public repositories.
 
-> Do this after your initial pushes: with "require 1 approval" on and no other
+> Do this after the initial pushes: with "require 1 approval" on and no other
 > collaborator, you could not approve your own pull request.
 
-## Stage 9 – Join the project (everyone else)
+## Stage 9 – Open the project for the first time
 
 1. Accept the GitHub invitation from your email.
 2. Clone: GitHub Desktop → File → Clone repository → `ar-ai-card-tutor` → local path
@@ -182,29 +183,30 @@ Only after the first pushes to `main` are done:
    different version or upgrade the project.
 4. The first open takes several minutes while Unity builds its `Library` folder.
 5. Make your own test scene: right-click `Assets/_Project/Scenes/Sandbox` →
-   Create → Scene → name it after yourself.
+   Create → Scene → give it a unique name.
 
-## Stage 10 – Daily workflow (everyone)
+## Stage 10 – Daily workflow
 
 Every work session:
 1. **Get the latest.** GitHub Desktop: switch to `main` → Fetch origin → Pull origin.
    Do this with Unity closed, or Unity may need to re-import.
-2. **Make a branch:** Current branch → New branch → name it `yourname/topic`
-   (e.g. `chen/rule-engine`).
+2. **Make a branch:** Current branch → New branch → name it `feature/topic`
+   (e.g. `feature/rule-engine`).
 3. **Work in Unity.** Save often (Ctrl+S for scenes, File → Save Project for other assets).
    Unity only writes changes to disk when you save.
 4. **Commit small pieces** with a clear message. Before committing, check the list:
    every new asset has its `.meta` file next to it; no `Library`/`Temp`/`.csproj`;
-   no scene you don't own changed by accident.
+   no scene changed by accident.
 5. **Push your branch**, then on github.com click **Compare & pull request**. Write two
    lines: what you changed and how to test it.
-6. **One teammate reviews and approves**, then click **Merge**, and delete the branch.
+6. **A reviewer approves**, then click **Merge**, and delete the branch.
 7. Everyone pulls `main` again.
 
 **Avoiding scene conflicts:** `.unity` and `.prefab` files are long text files Git cannot
-merge safely. `Main.unity` has one owner; others build their feature in their own Sandbox
-scene, save it as a prefab, and ask the owner to place it in `Main.unity`. Keep logic in
-scripts and settings in ScriptableObject assets (`Config/`), which merge much more easily.
+merge safely. `Main.unity` is edited by one person at a time; other features are built in
+a separate Sandbox scene, saved as a prefab, and placed into `Main.unity` by that person.
+Keep logic in scripts and settings in ScriptableObject assets (`Config/`), which merge
+much more easily.
 
 **Secrets:** never commit secrets — the repository is public. The AI layer needs an API
 key. Copy `Assets/StreamingAssets/secrets.example.json` to `secrets.json` and put your key
@@ -221,5 +223,5 @@ there; `.gitignore` excludes `secrets.json` but keeps the empty template.
 | Cloning/pulling gets slow | Large files committed by mistake | Keep `data/`, videos and `.apk` on the shared drive |
 | Unity Hub says the editor version is missing | Different Unity version | Install `6000.3.25f1`; never upgrade the project alone |
 | Quest does not appear / build fails with Gradle or SDK errors | Android modules missing, or unusual project path | Re-add the Android modules in Unity Hub; use a short path with no spaces |
-| Merge conflict in a `.unity` / `.prefab` file | Two people edited the same scene | Keep one version, redo the smaller change, follow the scene-owner rule |
+| Merge conflict in a `.unity` / `.prefab` file | Two people edited the same scene | Keep one version, redo the smaller change, follow the one-editor-per-scene rule |
 | Push rejected because a file is too large | GitHub blocks files over 100 MB | Do not commit it; move it to the shared drive |
