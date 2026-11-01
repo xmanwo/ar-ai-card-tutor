@@ -1,57 +1,36 @@
-using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using UnityEngine;
-using UnityEngine.Networking;
-
-[Serializable]
-public class Detection
-{
-    public int id;
-    public string raw_label;
-    public string label;
-    public float confidence;
-    public float[] bbox_xyxy;
-}
-
-[Serializable]
-public class DetectResponse
-{
-    public int frame_id;
-    public int image_width;
-    public int image_height;
-    public float inference_ms;
-    public Detection[] detections;
-}
 
 /// <summary>
-/// Uploads the most recent captured frame to the detection service and logs the parsed result.
-/// One request at a time; a new upload only starts after a new frame has been captured.
+/// Owns the scan state machine and the result list. Recognition itself is delegated to an
+/// <see cref="ICardScanSource"/>, so the server path and the on-device path are interchangeable
+/// without touching this class.
 /// </summary>
 public class CardScanClient : MonoBehaviour
 {
     [Tooltip("Leave empty to find the FrameCapture component automatically.")]
     public FrameCapture capture;
 
-    [Tooltip("Base URL of the detection service, without a trailing slash. " +
-             "Use the PC's IPv4 address, never 127.0.0.1 from the headset.")]
-    public string serverUrl = "http://192.168.1.100:8000";
+    [Tooltip("Where recognition happens: HttpCardScanSource for the PC service, or the " +
+             "on-device source. Leave empty to use a source on this same GameObject.")]
+    public MonoBehaviour scanSource;
 
-    public bool uploadEnabled = true;
-
-    [Tooltip("Optional result panel. Any component implementing IScanView. Leave empty to log only.")]
+    [Tooltip("Optional result panel. Any component implementing IScanView.")]
     public MonoBehaviour viewBehaviour;
+
+    public bool scanEnabled = true;
 
     public ScanState State { get; private set; } = ScanState.Ready;
     public List<CardEntry> Cards { get; } = new List<CardEntry>();
-
-    public DetectResponse LastResponse { get; private set; }
     public string LastError { get; private set; }
     public bool IsBusy { get; private set; }
-    public float LastRoundTripMs { get; private set; }
+    public float LastLatencyMs { get; private set; }
+    public string LastNote { get; private set; }
 
     IScanView view;
+    ICardScanSource source;
     Texture2D lastFrame;
     int lastSeenFrameId;
 
@@ -63,12 +42,22 @@ public class CardScanClient : MonoBehaviour
         view = viewBehaviour as IScanView;
         if (viewBehaviour != null && view == null)
             Debug.LogError("[Scan] viewBehaviour does not implement IScanView.");
+
+        if (scanSource != null)
+            source = scanSource as ICardScanSource;
+
+        if (source == null)
+            source = GetComponent<ICardScanSource>();
+
+        if (scanSource != null && source == null)
+            Debug.LogError("[Scan] scanSource does not implement ICardScanSource.");
     }
 
     void Start()
     {
-        Debug.Log($"[Scan] client started. capture={(capture != null ? capture.name : "NULL")}, " +
-                  $"url={serverUrl}, uploadEnabled={uploadEnabled}");
+        Debug.Log($"[Scan] ready. capture={(capture != null ? capture.name : "NULL")}, " +
+                  $"source={(source != null ? source.DisplayName : "NONE")}, " +
+                  $"view={(view != null ? view.GetType().Name : "NONE")}");
 
         Render();
     }
@@ -79,109 +68,71 @@ public class CardScanClient : MonoBehaviour
         if (State == ScanState.Confirmed)
             return;
 
-        if (!uploadEnabled || IsBusy || capture == null)
+        if (!scanEnabled || IsBusy || capture == null || source == null)
             return;
 
         if (capture.LastFrameId == lastSeenFrameId || capture.LastJpeg == null)
             return;
 
         lastSeenFrameId = capture.LastFrameId;
-        StartCoroutine(Upload(lastSeenFrameId, capture.LastJpeg));
+        lastFrame = capture.LastTexture;
+
+        StartCoroutine(RunScan(new ScanFrame
+        {
+            frameId = lastSeenFrameId,
+            texture = lastFrame,
+            jpeg = capture.LastJpeg
+        }));
     }
 
-    IEnumerator Upload(int frameId, byte[] jpeg)
+    IEnumerator RunScan(ScanFrame frame)
     {
         IsBusy = true;
         LastError = null;
-        lastFrame = capture != null ? capture.LastTexture : null;
-
         State = ScanState.Scanning;
         Render();
 
-        string url = serverUrl.TrimEnd('/') + "/detect";
+        CardScanResult result = default;
+        bool succeeded = false;
+        string failure = null;
 
-        var form = new List<IMultipartFormSection>
+        yield return source.Scan(
+            frame,
+            value => { result = value; succeeded = true; },
+            error => { failure = error; });
+
+        if (succeeded)
         {
-            new MultipartFormFileSection("file", jpeg, $"frame_{frameId}.jpg", "image/jpeg")
-        };
+            LastLatencyMs = result.latencyMs;
+            LastNote = result.note;
 
-        using (var request = UnityWebRequest.Post(url, form))
-        {
-            request.SetRequestHeader("X-Frame-Id", frameId.ToString());
-            request.timeout = 8;
+            Cards.Clear();
+            if (result.cards != null)
+                Cards.AddRange(result.cards);
 
-            float started = Time.realtimeSinceStartup;
-            yield return request.SendWebRequest();
-            LastRoundTripMs = (Time.realtimeSinceStartup - started) * 1000f;
-
-            if (request.result != UnityWebRequest.Result.Success)
-            {
-                LastError = $"{(int)request.responseCode} {request.error}";
-                Debug.LogWarning($"[Scan] frame {frameId} FAILED after {LastRoundTripMs:F0}ms: {LastError}");
-                State = ScanState.Error;
-                Render();
-                IsBusy = false;
-                yield break;
-            }
-
-            string body = request.downloadHandler.text;
-            DetectResponse parsed = null;
-
-            try
-            {
-                parsed = JsonUtility.FromJson<DetectResponse>(body);
-            }
-            catch (Exception e)
-            {
-                LastError = "JSON parse failed: " + e.Message;
-                Debug.LogWarning($"[Scan] frame {frameId} bad JSON ({e.Message}): {body}");
-                State = ScanState.Error;
-                Render();
-                IsBusy = false;
-                yield break;
-            }
-
-            if (parsed == null)
-            {
-                LastError = "Empty response";
-                Debug.LogWarning($"[Scan] frame {frameId} returned an empty body");
-                State = ScanState.Error;
-                Render();
-                IsBusy = false;
-                yield break;
-            }
-
-            LastResponse = parsed;
-            LogResult(frameId, parsed);
-
-            BuildCards(parsed);
             State = ScanState.Reviewing;
-            Render();
+            LogResult(frame.frameId, result, Cards);
+        }
+        else
+        {
+            LastError = failure ?? "Unknown error";
+            State = ScanState.Error;
+            Debug.LogWarning($"[Scan] frame {frame.frameId} FAILED: {LastError}");
         }
 
+        Render();
         IsBusy = false;
     }
 
-    void BuildCards(DetectResponse response)
-    {
-        Cards.Clear();
-
-        if (response.detections == null)
-            return;
-
-        foreach (var detection in response.detections)
-            Cards.Add(CardEntry.FromModel(detection));
-    }
-
-    /// <summary>Wire this to the Scan button. Takes one frame and uploads it.</summary>
+    /// <summary>Wire this to the Scan button. Takes one frame and runs it through the source.</summary>
     public void RequestScan()
     {
         if (IsBusy)
             return;
 
-        if (capture == null)
+        if (capture == null || source == null)
         {
-            LastError = "No camera";
+            LastError = capture == null ? "No camera" : "No scan source";
             State = ScanState.Error;
             Render();
             return;
@@ -219,30 +170,32 @@ public class CardScanClient : MonoBehaviour
         view.Render(State, lastFrame, Cards, LastError ?? string.Empty);
     }
 
-    void LogResult(int frameId, DetectResponse r)
+    void LogResult(int frameId, CardScanResult result, List<CardEntry> cards)
     {
-        if (r.frame_id != frameId)
-            Debug.LogWarning($"[Scan] frame id mismatch: sent {frameId}, got {r.frame_id}");
+        string timing = $"{result.latencyMs:F0}ms round trip";
+        if (!string.IsNullOrEmpty(result.note))
+            timing += $", {result.note}";
 
-        int count = r.detections != null ? r.detections.Length : 0;
-        string timing = $"{LastRoundTripMs:F0}ms round trip, {r.inference_ms:F0}ms inference";
+        string via = source != null ? source.DisplayName : "?";
 
-        if (count == 0)
+        if (cards.Count == 0)
         {
-            Debug.Log($"[Scan] frame {frameId} OK ({timing}) | No cards detected");
+            Debug.Log($"[Scan] frame {frameId} OK via {via} ({timing}) | No cards detected");
             return;
         }
 
         var sb = new StringBuilder();
-        for (int i = 0; i < count; i++)
+        for (int i = 0; i < cards.Count; i++)
         {
             if (i > 0)
                 sb.Append(", ");
 
-            var d = r.detections[i];
-            sb.Append($"{d.label} ({d.confidence:F2})");
+            var card = cards[i];
+            sb.Append(card.confidence >= 0f
+                ? $"{card.DisplayName} ({card.confidence:F2})"
+                : card.DisplayName);
         }
 
-        Debug.Log($"[Scan] frame {frameId} OK ({timing}) | {count} cards: {sb}");
+        Debug.Log($"[Scan] frame {frameId} OK via {via} ({timing}) | {cards.Count} cards: {sb}");
     }
 }
