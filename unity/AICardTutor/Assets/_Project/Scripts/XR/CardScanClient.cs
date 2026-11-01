@@ -40,8 +40,14 @@ public class CardScanClient : MonoBehaviour
             capture = FindFirstObjectByType<FrameCapture>();
 
         view = viewBehaviour as IScanView;
+
+        // Dragging a GameObject onto a MonoBehaviour field picks the first MonoBehaviour on it,
+        // which is usually the GraphicRaycaster rather than the view. Look one level deeper.
+        if (view == null && viewBehaviour != null)
+            view = viewBehaviour.GetComponent<IScanView>();
+
         if (viewBehaviour != null && view == null)
-            Debug.LogError("[Scan] viewBehaviour does not implement IScanView.");
+            Debug.LogError("[Scan] viewBehaviour has no component implementing IScanView.");
 
         if (scanSource != null)
             source = scanSource as ICardScanSource;
@@ -96,10 +102,18 @@ public class CardScanClient : MonoBehaviour
         bool succeeded = false;
         string failure = null;
 
-        yield return source.Scan(
-            frame,
-            value => { result = value; succeeded = true; },
-            error => { failure = error; });
+        try
+        {
+            yield return source.Scan(
+                frame,
+                value => { result = value; succeeded = true; },
+                error => { failure = error; });
+        }
+        finally
+        {
+            // A source that throws must not leave the scan loop stuck for the rest of the session.
+            IsBusy = false;
+        }
 
         if (succeeded)
         {
@@ -121,7 +135,6 @@ public class CardScanClient : MonoBehaviour
         }
 
         Render();
-        IsBusy = false;
     }
 
     /// <summary>Wire this to the Scan button. Takes one frame and runs it through the source.</summary>
