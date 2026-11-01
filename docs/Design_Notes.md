@@ -46,8 +46,8 @@ A **rules engine** decides which of the learner's cards are legal this turn, and
 
 1. The top of the discard pile changes → the app shows a light prompt: "Your turn?"
 2. The learner confirms (pinch / tap). A persistent **"My turn"** button is also available.
-3. The app reads the learner's hand (or the learner confirms it). The hand is read once and
-   afterwards only updated by **subtracting the card that was played**.
+3. The app reads the learner's hand (or the learner confirms it). The hand is **not read once and
+   then decremented**: after every draw the whole hand is re-read in full.
 4. The app lists the legal cards and, in text, explains why each is legal.
 5. If a Wild is played, the app shows four colour chips; the player who played it picks the
    colour. The next card played is used to cross-check. A persistent HUD shows the current
@@ -57,6 +57,10 @@ A **rules engine** decides which of the learner's cards are legal this turn, and
 
 ## Reading the hand
 
+- **The hand is re-read, not decremented.** Drawing a card makes the hand *larger*, so a
+  "read once, then subtract the card that was played" model breaks down as soon as anyone
+  draws. After every draw the whole hand is read again from scratch; the app keeps no running
+  card count between reads.
 - The passthrough camera sits on the front of the headset and faces the same way as the
   eyes, so **what the learner can see, the camera can roughly see too**.
 - Use the **corner indices** (the small number + colour in the top-left and bottom-right
@@ -74,7 +78,9 @@ A **rules engine** decides which of the learner's cards are legal this turn, and
 | Rule | Setting |
 | --- | --- |
 | Player count | 2–4 (real people) |
-| Can't play — draw | **Draw until a playable card is drawn** |
+| Can't play — draw | **Draw 1 card.** If it is playable it may be played at once; if not, the turn passes |
+| After drawing | **Only the drawn card may be played** — the rest of the hand is locked for that turn |
+| Drawing instead of playing | **Allowed** — a player who already has a legal move may still choose to draw 1 |
 | Stacking (+2 / +4) | **Allowed** — a +2 or +4 may be stacked onto another +2 / +4 |
 | Reverse | Normal with 3–4 players; **acts as Skip in a 2-player game** |
 | UNO call | **Required.** The app prompts the learner when they play down to one card |
