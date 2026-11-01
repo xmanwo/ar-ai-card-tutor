@@ -82,3 +82,8 @@ desktop.ini
 
 # Keep the secrets template (empty values) in Git
 !**/secrets.example.json
+
+# ---- Local debug output (never commit) --------------------------------
+.workbuddy-ai/
+captures/
+unity/AICardTutor/buildtest/
