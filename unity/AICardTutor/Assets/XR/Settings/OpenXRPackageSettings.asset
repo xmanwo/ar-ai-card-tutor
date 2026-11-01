@@ -1017,8 +1017,8 @@ MonoBehaviour:
   - {fileID: 8127291601776993140}
   - {fileID: -1835866604154244162}
   - {fileID: 8138307427169125435}
-  - {fileID: 3410902767547993937}
-  - {fileID: 4396941297670924797}
+  - {fileID: -2286796363757591860}
+  - {fileID: 5165319822227344721}
   - {fileID: 3298164568213380209}
   - {fileID: -7382343682382298959}
   - {fileID: 7746354425518333801}
@@ -1029,7 +1029,7 @@ MonoBehaviour:
   - {fileID: 1923348927079076266}
   - {fileID: 1330991386968781117}
   - {fileID: -2436165983393813540}
-  - {fileID: 1029646330681860945}
+  - {fileID: -1623922694786060519}
   - {fileID: 6730465793224889687}
   - {fileID: -905532785698061016}
   - {fileID: -8695955201372404009}
@@ -1073,7 +1073,7 @@ MonoBehaviour:
     m_List: 00000000
   m_depthSubmissionMode: 0
   m_spacewarpMotionVectorTextureFormat: 0
-  m_optimizeBufferDiscards: 0
+  m_optimizeBufferDiscards: 1
   m_symmetricProjection: 0
   m_optimizeMultiviewRenderRegions: 0
   m_multiviewRenderRegionsOptimizationMode: 0
@@ -1192,7 +1192,7 @@ MonoBehaviour:
   targetOpenXRApiVersion: 
   required: 0
   customRuntimeLoaderName: 
-  m_CameraImageSupport: 0
+  m_CameraImageSupport: 1
   m_PassthroughPreSplashScreen: 0
 --- !u!114 &-532194121422872633
 MonoBehaviour:
