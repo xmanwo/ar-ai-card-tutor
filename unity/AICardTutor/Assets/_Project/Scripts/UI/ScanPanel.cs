@@ -163,13 +163,24 @@ public class ScanPanel : MonoBehaviour, IScanView
         }
 
         if (statusText != null)
-            statusText.text = StatusLine(state, cards, message);
+        {
+            bool autoScan = client != null && client.AutoScanning;
+            string line = StatusLine(state, cards, message, autoScan);
+
+            // The round trip is the number the accuracy work will be judged against, so show it.
+            if (state == ScanState.Reviewing && client != null && client.LastLatencyMs > 0f)
+                line += $"   ({client.LastLatencyMs:F0} ms)";
+
+            statusText.text = line;
+        }
 
         if (listText != null)
             listText.text = CardList(state, cards);
 
+        // Scan means "look again now". With automatic scanning on, a result is usually already on
+        // screen when the user wants another pass, so it must stay pressable in Reviewing.
         if (scanButton != null)
-            scanButton.interactable = state == ScanState.Ready || state == ScanState.Error;
+            scanButton.interactable = state != ScanState.Scanning && state != ScanState.Confirmed;
 
         if (rescanButton != null)
             rescanButton.interactable = state != ScanState.Scanning;
@@ -179,7 +190,7 @@ public class ScanPanel : MonoBehaviour, IScanView
             confirmButton.interactable = state == ScanState.Reviewing && cards.Count > 0;
     }
 
-    static string StatusLine(ScanState state, IReadOnlyList<CardEntry> cards, string message)
+    static string StatusLine(ScanState state, IReadOnlyList<CardEntry> cards, string message, bool autoScan)
     {
         switch (state)
         {
@@ -187,7 +198,11 @@ public class ScanPanel : MonoBehaviour, IScanView
                 return "Scanning...";
 
             case ScanState.Reviewing:
-                return cards.Count == 0 ? "No cards detected" : $"{cards.Count} card(s) detected";
+                if (cards.Count > 0)
+                    return $"{cards.Count} card(s) detected";
+
+                // With auto scanning a miss is not a failure, it just means nothing is in view yet.
+                return autoScan ? "Watching for cards..." : "No cards detected";
 
             case ScanState.Confirmed:
                 return $"Confirmed {cards.Count} cards.";
@@ -196,7 +211,9 @@ public class ScanPanel : MonoBehaviour, IScanView
                 return string.IsNullOrEmpty(message) ? "Connection failed" : $"Connection failed\n{message}";
 
             default:
-                return "Ready. Look at the cards, then tap Scan.";
+                return autoScan
+                    ? "Watching for cards..."
+                    : "Ready. Look at the cards, then tap Scan.";
         }
     }
 

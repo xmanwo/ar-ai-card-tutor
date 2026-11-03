@@ -22,6 +22,18 @@ public class CardScanClient : MonoBehaviour
 
     public bool scanEnabled = true;
 
+    [Header("Automatic scanning")]
+    [Tooltip("Keep scanning on its own, so a card held in view is recognised without pressing A. " +
+             "Pressing A still forces an immediate scan.")]
+    public bool autoScan = true;
+
+    [Tooltip("Seconds between automatic scans while the result is still changing.")]
+    public float autoScanInterval = 2f;
+
+    [Tooltip("Seconds between automatic scans once two results in a row came back identical. " +
+             "Keeps the headset from uploading the same picture forever.")]
+    public float autoScanIdleInterval = 4f;
+
     public ScanState State { get; private set; } = ScanState.Ready;
     public List<CardEntry> Cards { get; } = new List<CardEntry>();
     public string LastError { get; private set; }
@@ -29,10 +41,16 @@ public class CardScanClient : MonoBehaviour
     public float LastLatencyMs { get; private set; }
     public string LastNote { get; private set; }
 
+    /// <summary>True when the panel should present itself as watching rather than waiting for a tap.</summary>
+    public bool AutoScanning => autoScan;
+
     IScanView view;
     ICardScanSource source;
     Texture2D lastFrame;
     int lastSeenFrameId;
+    float nextAutoScanAt;
+    string lastResultSignature;
+    int sameResultStreak;
 
     void Awake()
     {
@@ -61,9 +79,13 @@ public class CardScanClient : MonoBehaviour
 
     void Start()
     {
+        string autoText = autoScan
+            ? $"{autoScanInterval}s, idle {autoScanIdleInterval}s"
+            : "off";
+
         Debug.Log($"[Scan] ready. capture={(capture != null ? capture.name : "NULL")}, " +
                   $"source={(source != null ? source.DisplayName : "NONE")}, " +
-                  $"view={(view != null ? view.GetType().Name : "NONE")}");
+                  $"view={(view != null ? view.GetType().Name : "NONE")}, auto={autoText}");
 
         Render();
     }
@@ -77,26 +99,41 @@ public class CardScanClient : MonoBehaviour
         if (!scanEnabled || IsBusy || capture == null || source == null)
             return;
 
+        // The auto scanner asks FrameCapture for a frame; the frame itself is picked up below,
+        // exactly like a manual press, so there is only one path into RunScan.
+        if (autoScan && Time.unscaledTime >= nextAutoScanAt)
+        {
+            ScheduleNextAutoScan();
+            capture.CaptureQuiet();
+            return;
+        }
+
         if (capture.LastFrameId == lastSeenFrameId || capture.LastJpeg == null)
             return;
 
         lastSeenFrameId = capture.LastFrameId;
         lastFrame = capture.LastTexture;
 
+        // A manual press gets the "Scanning..." page; an automatic refresh must not flash the
+        // panel every couple of seconds, so it updates the list in place.
         StartCoroutine(RunScan(new ScanFrame
         {
             frameId = lastSeenFrameId,
             texture = lastFrame,
             jpeg = capture.LastJpeg
-        }));
+        }, quiet: !capture.LastCaptureWasManual));
     }
 
-    IEnumerator RunScan(ScanFrame frame)
+    IEnumerator RunScan(ScanFrame frame, bool quiet)
     {
         IsBusy = true;
         LastError = null;
-        State = ScanState.Scanning;
-        Render();
+
+        if (!quiet)
+        {
+            State = ScanState.Scanning;
+            Render();
+        }
 
         CardScanResult result = default;
         bool succeeded = false;
@@ -125,7 +162,14 @@ public class CardScanClient : MonoBehaviour
                 Cards.AddRange(result.cards);
 
             State = ScanState.Reviewing;
+            TrackResultStability();
             LogResult(frame.frameId, result, Cards);
+        }
+        else if (quiet)
+        {
+            // One dropped auto scan must not wipe a result the user is reading.
+            Debug.LogWarning($"[Scan] auto frame {frame.frameId} failed: {failure ?? "Unknown error"}");
+            ScheduleNextAutoScan();
         }
         else
         {
@@ -137,12 +181,47 @@ public class CardScanClient : MonoBehaviour
         Render();
     }
 
+    void ScheduleNextAutoScan()
+    {
+        float interval = sameResultStreak >= 2 ? autoScanIdleInterval : autoScanInterval;
+        nextAutoScanAt = Time.unscaledTime + interval;
+    }
+
+    /// <summary>
+    /// Slows the auto scanner down once the same answer comes back twice, so holding one card
+    /// still does not keep the CPU and the network busy.
+    /// </summary>
+    void TrackResultStability()
+    {
+        string signature = ResultSignature();
+
+        if (signature == lastResultSignature)
+            sameResultStreak++;
+        else
+        {
+            lastResultSignature = signature;
+            sameResultStreak = 0;
+        }
+
+        ScheduleNextAutoScan();
+    }
+
+    string ResultSignature()
+    {
+        if (Cards.Count == 0)
+            return string.Empty;
+
+        var names = new List<string>(Cards.Count);
+        foreach (var card in Cards)
+            names.Add(card.DisplayName);
+
+        names.Sort(string.CompareOrdinal);
+        return string.Join("|", names);
+    }
+
     /// <summary>Wire this to the Scan button. Takes one frame and runs it through the source.</summary>
     public void RequestScan()
     {
-        if (IsBusy)
-            return;
-
         if (capture == null || source == null)
         {
             LastError = capture == null ? "No camera" : "No scan source";
@@ -151,7 +230,15 @@ public class CardScanClient : MonoBehaviour
             return;
         }
 
+        // Capture even while a scan is in flight: the frame waits for the running request and is
+        // picked up right after it, so a press never feels dropped.
         capture.Capture();
+
+        // A press means "look again now": drop the backoff so the next automatic pass is not
+        // delayed by a result that was already stable.
+        sameResultStreak = 0;
+        lastResultSignature = null;
+        nextAutoScanAt = Time.unscaledTime + autoScanInterval;
     }
 
     /// <summary>Freezes the current list. Later responses must not overwrite it.</summary>
