@@ -1,0 +1,45 @@
+#!/bin/sh
+#
+# Keeps Unity version drift out of commits.
+#
+# The team standardises on Unity 6000.3.25f1. Opening the project with any other
+# 6000.3.x patch makes Unity rewrite a handful of environment files, which then
+# pollute the branch and make a PR look like it downgrades the whole team.
+#
+# This hook drops those paths from the index before the commit is written. The
+# files stay modified in the working tree, so Unity keeps working normally; they
+# simply never reach a commit.
+#
+# Bypass with: SKIP_ENV_GUARD=1 git commit ...
+#
+# Install (once per clone):
+#   cp tools/pre-commit-env-guard .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+if [ "$SKIP_ENV_GUARD" = "1" ]; then
+    exit 0
+fi
+
+ENV_PATHS="
+unity/AICardTutor/ProjectSettings/ProjectVersion.txt
+unity/AICardTutor/Packages/packages-lock.json
+unity/AICardTutor/Assets/Samples
+unity/AICardTutor/Assets/XR/Settings/OpenXRPackageSettings.asset
+"
+
+dropped=""
+
+for path in $ENV_PATHS; do
+    if ! git diff --cached --quiet -- "$path" 2>/dev/null; then
+        git restore --staged -- "$path" 2>/dev/null
+        dropped="$dropped
+  $path"
+    fi
+done
+
+if [ -n "$dropped" ]; then
+    echo "env-guard: Unity version drift kept out of this commit:"
+    echo "$dropped"
+    echo "env-guard: the working tree is unchanged. Use SKIP_ENV_GUARD=1 to override."
+fi
+
+exit 0

@@ -48,14 +48,35 @@ public class HttpCardScanSource : MonoBehaviour, ICardScanSource
             yield break;
         }
 
-        string url = serverUrl.TrimEnd('/') + "/detect";
+        string baseUrl = (serverUrl ?? string.Empty).Trim();
 
-        var form = new List<IMultipartFormSection>
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var endpointUri) ||
+            (endpointUri.Scheme != Uri.UriSchemeHttp && endpointUri.Scheme != Uri.UriSchemeHttps))
         {
-            new MultipartFormFileSection("file", frame.jpeg, $"frame_{frame.frameId}.jpg", "image/jpeg")
-        };
+            onFailure?.Invoke($"Invalid server URL '{serverUrl}'. Expected http://<ip>:<port>");
+            yield break;
+        }
 
-        using (var request = UnityWebRequest.Post(url, form))
+        string url = baseUrl.TrimEnd('/') + "/detect";
+
+        UnityWebRequest request;
+
+        try
+        {
+            var form = new List<IMultipartFormSection>
+            {
+                new MultipartFormFileSection("file", frame.jpeg, $"frame_{frame.frameId}.jpg", "image/jpeg")
+            };
+
+            request = UnityWebRequest.Post(url, form);
+        }
+        catch (Exception e)
+        {
+            onFailure?.Invoke($"Could not build request: {e.Message}");
+            yield break;
+        }
+
+        using (request)
         {
             request.SetRequestHeader("X-Frame-Id", frame.frameId.ToString());
             request.timeout = timeoutSeconds;
