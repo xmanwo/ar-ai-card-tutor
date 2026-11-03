@@ -85,5 +85,6 @@ desktop.ini
 
 # ---- Local debug output (never commit) --------------------------------
 .workbuddy-ai/
+.debug/
 captures/
 unity/AICardTutor/buildtest/

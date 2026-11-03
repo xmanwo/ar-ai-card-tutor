@@ -11,6 +11,9 @@ public class QuestCameraPreview : MonoBehaviour
 {
     public ARCameraManager cameraManager;
 
+    [Tooltip("Draw the camera picture. Turned off by ScanPanel, which needs the quad out of the way.")]
+    public bool showPreview = true;
+
     const string CameraPermission = "horizonos.permission.HEADSET_CAMERA";
 
     RawImage preview;
@@ -72,7 +75,7 @@ public class QuestCameraPreview : MonoBehaviour
 
     void Update()
     {
-        if (!ready || Time.unscaledTime < nextRefresh)
+        if (!ready || !showPreview || Time.unscaledTime < nextRefresh)
             return;
 
         nextRefresh = Time.unscaledTime + 0.2f;
@@ -107,6 +110,22 @@ public class QuestCameraPreview : MonoBehaviour
             image.Convert(conversion, new NativeSlice<byte>(texture.GetRawTextureData<byte>()));
             texture.Apply(false, false);
         }
+    }
+
+    /// <summary>
+    /// Hide the picture without disabling this component: this is the only place that asks for
+    /// horizonos.permission.HEADSET_CAMERA, and the head camera stops working without it.
+    /// </summary>
+    public void SetPreviewVisible(bool visible)
+    {
+        showPreview = visible;
+
+        // Start() assigns the field from inside a coroutine, so it may still be null here.
+        if (preview == null)
+            preview = GetComponent<RawImage>();
+
+        if (preview != null)
+            preview.enabled = visible;
     }
 
     void OnDestroy()
