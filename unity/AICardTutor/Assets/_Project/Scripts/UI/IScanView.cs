@@ -3,19 +3,22 @@ using UnityEngine;
 
 public enum ScanState
 {
-    /// <summary>Nothing scanned yet, or the last round was cleared.</summary>
-    Ready,
+    /// <summary>Watching for the picture to change. No request is in flight and none is sent.</summary>
+    Seeking,
 
-    /// <summary>A request is in flight. No list should be shown as final.</summary>
+    /// <summary>A round is running: one request every few hundred milliseconds, building tracks.</summary>
     Scanning,
 
-    /// <summary>A result arrived. The user may edit the list; it must not be overwritten.</summary>
+    /// <summary>The result froze. The user may edit the list; it must not be overwritten.</summary>
     Reviewing,
 
-    /// <summary>The user confirmed. The list is frozen.</summary>
+    /// <summary>The user confirmed. The list is frozen for good.</summary>
     Confirmed,
 
-    /// <summary>The request failed. Show the reason and offer a retry.</summary>
+    /// <summary>The round finished and recognised nothing. Not an error: try another angle.</summary>
+    Failed,
+
+    /// <summary>The request itself failed: no server, bad URL, timeout. Retry in place.</summary>
     Error
 }
 

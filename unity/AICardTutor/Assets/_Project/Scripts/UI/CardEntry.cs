@@ -26,6 +26,12 @@ public class CardEntry
     /// <summary>Pixel box in the captured image, top-left origin. Optional.</summary>
     public float[] bbox;
 
+    /// <summary>
+    /// The scan froze on a card the model was not sure about: either the best confidence was low
+    /// or the votes were split between labels. Shown in warning colour so the player can judge.
+    /// </summary>
+    public bool uncertain;
+
     public string DisplayName =>
         string.IsNullOrEmpty(color) ? value : $"{color} {value}";
 
@@ -39,6 +45,23 @@ public class CardEntry
         };
 
         SplitLabel(detection.label, out entry.color, out entry.value);
+        return entry;
+    }
+
+    /// <summary>
+    /// Builds an entry from an already-resolved label. The scan client decides the label by vote
+    /// across a round, so there is no single Detection to hand over.
+    /// </summary>
+    public static CardEntry FromLabel(string label, float confidence, float[] bbox)
+    {
+        var entry = new CardEntry
+        {
+            source = CardSource.Model,
+            confidence = confidence,
+            bbox = bbox
+        };
+
+        SplitLabel(label, out entry.color, out entry.value);
         return entry;
     }
 

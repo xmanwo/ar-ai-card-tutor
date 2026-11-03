@@ -74,8 +74,8 @@ public class ScanPanel : MonoBehaviour, IScanView
             AttachToCamera();
 
         // CardScanClient resolves its view in Awake, which may run before this component exists.
-        if (client != null && client.State == ScanState.Ready)
-            Render(ScanState.Ready, null, client.Cards, string.Empty);
+        if (client != null && client.State == ScanState.Seeking)
+            Render(ScanState.Seeking, null, client.Cards, string.Empty);
     }
 
     void AttachToCamera()
@@ -156,29 +156,22 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     public void Render(ScanState state, Texture2D frame, IReadOnlyList<CardEntry> cards, string message)
     {
+        // The thumbnail is only shown once the result is frozen. During a round every frame is a
+        // half-finished picture, and showing them is exactly what made the panel flicker.
         if (frameImage != null)
         {
-            frameImage.texture = frame;
-            frameImage.enabled = frame != null && state != ScanState.Ready;
+            bool showFrame = frame != null && (state == ScanState.Reviewing || state == ScanState.Confirmed);
+            frameImage.texture = showFrame ? frame : null;
+            frameImage.enabled = showFrame;
         }
 
         if (statusText != null)
-        {
-            bool autoScan = client != null && client.AutoScanning;
-            string line = StatusLine(state, cards, message, autoScan);
-
-            // The round trip is the number the accuracy work will be judged against, so show it.
-            if (state == ScanState.Reviewing && client != null && client.LastLatencyMs > 0f)
-                line += $"   ({client.LastLatencyMs:F0} ms)";
-
-            statusText.text = line;
-        }
+            statusText.text = StatusLine(state, cards, message);
 
         if (listText != null)
-            listText.text = CardList(state, cards);
+            listText.text = CardList(state, cards, message);
 
-        // Scan means "look again now". With automatic scanning on, a result is usually already on
-        // screen when the user wants another pass, so it must stay pressable in Reviewing.
+        // Scan means "look again now", so it stays pressable in Reviewing as well.
         if (scanButton != null)
             scanButton.interactable = state != ScanState.Scanning && state != ScanState.Confirmed;
 
@@ -190,37 +183,58 @@ public class ScanPanel : MonoBehaviour, IScanView
             confirmButton.interactable = state == ScanState.Reviewing && cards.Count > 0;
     }
 
-    static string StatusLine(ScanState state, IReadOnlyList<CardEntry> cards, string message, bool autoScan)
+    /// <summary>
+    /// The only per-frame work in the view: while a round runs, the status line counts the seconds
+    /// so the player can tell "still looking" from "stuck".
+    /// </summary>
+    void Update()
+    {
+        if (statusText == null || client == null)
+            return;
+
+        if (client.State != ScanState.Scanning)
+            return;
+
+        statusText.text = $"Recognising... {client.ScanElapsedSeconds:F1}s";
+    }
+
+    static string StatusLine(ScanState state, IReadOnlyList<CardEntry> cards, string message)
     {
         switch (state)
         {
+            case ScanState.Seeking:
+                return "Lay the cards out in front of you.";
+
             case ScanState.Scanning:
-                return "Scanning...";
+                return "Recognising...";
 
             case ScanState.Reviewing:
-                if (cards.Count > 0)
-                    return $"{cards.Count} card(s) detected";
-
-                // With auto scanning a miss is not a failure, it just means nothing is in view yet.
-                return autoScan ? "Watching for cards..." : "No cards detected";
+                return cards.Count > 0 ? $"{cards.Count} card(s) detected" : "No cards detected";
 
             case ScanState.Confirmed:
                 return $"Confirmed {cards.Count} cards.";
+
+            case ScanState.Failed:
+                return "Nothing recognised";
 
             case ScanState.Error:
                 return string.IsNullOrEmpty(message) ? "Connection failed" : $"Connection failed\n{message}";
 
             default:
-                return autoScan
-                    ? "Watching for cards..."
-                    : "Ready. Look at the cards, then tap Scan.";
+                return "Lay the cards out in front of you.";
         }
     }
 
-    static string CardList(ScanState state, IReadOnlyList<CardEntry> cards)
+    static string CardList(ScanState state, IReadOnlyList<CardEntry> cards, string message)
     {
         if (state == ScanState.Scanning)
-            return "Waiting for result...";
+            return string.Empty;
+
+        if (state == ScanState.Failed)
+            return "Move closer, change the angle,\nor scan again.";
+
+        if (state == ScanState.Error)
+            return "Check that the detection service\nis running, then scan again.";
 
         if (cards == null || cards.Count == 0)
             return string.Empty;
@@ -234,12 +248,22 @@ public class ScanPanel : MonoBehaviour, IScanView
             if (i > 0)
                 sb.Append('\n');
 
-            sb.Append(card.DisplayName);
+            string line = card.DisplayName;
 
             // A user-added card has no model score, so do not invent one.
             if (card.source == CardSource.Model && card.confidence >= 0f)
-                sb.Append($"   ({card.confidence:P0})");
+                line += $"   ({card.confidence:P0})";
+
+            if (card.uncertain)
+                line = $"<color=#F5B301>{line}  ?</color>";
+
+            sb.Append(line);
         }
+
+        // A round that found nothing keeps the old list; say so instead of letting the player
+        // wonder why the result did not change.
+        if (state == ScanState.Reviewing && !string.IsNullOrEmpty(message))
+            sb.Append($"\n<size=80%><color=#F5B301>{message}</color></size>");
 
         return sb.ToString();
     }
