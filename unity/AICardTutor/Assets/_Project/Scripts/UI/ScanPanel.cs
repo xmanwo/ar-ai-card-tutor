@@ -3,15 +3,32 @@ using System.Text;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
-/// The three-page result panel. Pure view: it draws what CardScanClient hands it and forwards
-/// button presses back. It never touches the camera or the network.
+/// Displays scan drafts and commits a validated snapshot to GameSessionState on confirmation.
+/// Camera capture and networking remain owned by CardScanClient.
 /// </summary>
+[RequireComponent(typeof(Canvas), typeof(TrackedDeviceGraphicRaycaster))]
 public class ScanPanel : MonoBehaviour, IScanView
 {
     [Header("Data")]
     public CardScanClient client;
+
+    [Header("Session")]
+    public GameSessionState session;
+    public Button scanDiscardButton;
+    public TMP_Text savedStateText;
+
+    public ScanTarget ActiveTarget { get; private set; } = ScanTarget.Hand;
+    string TargetName => ActiveTarget == ScanTarget.Hand ? "Hand" : "Discard";
+
+    [Header("Wild colour")]
+    public GameObject wildColorControls;
+    public TMP_Text wildColorText;
+
+    string pendingWildColor;
+    ScanState lastRenderedState = ScanState.Seeking;
 
     [Header("Display")]
     public RawImage frameImage;
@@ -32,7 +49,7 @@ public class ScanPanel : MonoBehaviour, IScanView
              "Kept nearer than the camera preview quad (z=1.0) so the two can never fight for depth.")]
     public Vector3 localOffset = new Vector3(0f, -0.26f, 0.85f);
 
-    [Tooltip("Canvas scale. 0.0007 makes the 700x500 canvas 0.49m x 0.35m.")]
+    [Tooltip("Canvas scale. 0.0007 makes the 700x660 canvas 0.49m x 0.462m.")]
     public float panelScale = 0.0007f;
 
     [Tooltip("Draw the panel after other world-space canvases. Belt and braces against " +
@@ -48,15 +65,32 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (client == null)
             client = FindFirstObjectByType<CardScanClient>();
 
+        if (session == null)
+            session = FindFirstObjectByType<GameSessionState>();
+
+        // Existing prefabs also need the XR receiver, not only newly created canvases.
+        if (GetComponent<TrackedDeviceGraphicRaycaster>() == null)
+            gameObject.AddComponent<TrackedDeviceGraphicRaycaster>();
+
         var canvas = GetComponent<Canvas>();
         if (canvas != null)
         {
+            canvas.renderMode = RenderMode.WorldSpace;
+            canvas.worldCamera = Camera.main;
             canvas.overrideSorting = true;
             canvas.sortingOrder = canvasSortingOrder;
         }
 
+        if (frameImage != null) frameImage.raycastTarget = false;
+        if (statusText != null) statusText.raycastTarget = false;
+        if (listText != null) listText.raycastTarget = false;
+        if (savedStateText != null) savedStateText.raycastTarget = false;
+
         if (scanButton != null)
             scanButton.onClick.AddListener(OnScan);
+
+        if (scanDiscardButton != null)
+            scanDiscardButton.onClick.AddListener(OnScanDiscard);
 
         if (rescanButton != null)
             rescanButton.onClick.AddListener(OnRescan);
@@ -76,6 +110,8 @@ public class ScanPanel : MonoBehaviour, IScanView
         // CardScanClient resolves its view in Awake, which may run before this component exists.
         if (client != null && client.State == ScanState.Seeking)
             Render(ScanState.Seeking, null, client.Cards, string.Empty);
+
+        RefreshSavedState();
     }
 
     void AttachToCamera()
@@ -92,6 +128,8 @@ public class ScanPanel : MonoBehaviour, IScanView
             return;
         }
 
+        // Tracked-device raycasts must use the same head camera as the displayed panel.
+        GetComponent<Canvas>().worldCamera = cam;
         transform.SetParent(cam.transform, false);
         transform.localPosition = localOffset;
         transform.localRotation = Quaternion.identity;
@@ -129,6 +167,9 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (scanButton != null)
             scanButton.onClick.RemoveListener(OnScan);
 
+        if (scanDiscardButton != null)
+            scanDiscardButton.onClick.RemoveListener(OnScanDiscard);
+
         if (rescanButton != null)
             rescanButton.onClick.RemoveListener(OnRescan);
 
@@ -138,8 +179,22 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     void OnScan()
     {
-        if (client != null)
-            client.RequestScan();
+        StartTarget(ScanTarget.Hand);
+    }
+
+    void OnScanDiscard()
+    {
+        StartTarget(ScanTarget.Discard);
+    }
+
+    void StartTarget(ScanTarget target)
+    {
+        if (client == null || !client.TryRescan())
+            return;
+
+        // A rejected request must never retarget the round already in progress.
+        ActiveTarget = target;
+        Render(client.State, null, client.Cards, string.Empty);
     }
 
     void OnRescan()
@@ -150,12 +205,66 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     void OnConfirm()
     {
-        if (client != null)
-            client.Confirm();
+        if (client == null || client.State != ScanState.Reviewing)
+            return;
+
+        if (session == null)
+        {
+            if (statusText != null)
+                statusText.text = "Saved state unavailable";
+            return;
+        }
+
+        if (!session.TrySave(ActiveTarget, client.Cards, pendingWildColor, out string error))
+        {
+            if (statusText != null)
+                statusText.text = error;
+            return;
+        }
+
+        // No state transition is allowed until validation and snapshot creation succeed.
+        Debug.Log($"[Session] saved {TargetName}: hand={session.Hand.Count}, " +
+                  $"discard={session.Discard?.DisplayName ?? "none"}, colour={session.ActiveColor ?? "not set"}");
+        client.Confirm();
+    }
+
+    public void SelectWildColor(string color)
+    {
+        if (client == null || !NeedsWildColor(client.State, client.Cards) ||
+            !GameSessionState.IsValidColor(color))
+            return;
+
+        pendingWildColor = color;
+        RefreshWildColorControls(client.State, client.Cards);
+        if (statusText != null)
+            statusText.text = $"Discard: {color} selected. Confirm to save.";
+    }
+
+    bool NeedsWildColor(ScanState state, IReadOnlyList<CardEntry> cards)
+    {
+        return state == ScanState.Reviewing && ActiveTarget == ScanTarget.Discard &&
+            cards != null && cards.Count == 1 && GameSessionState.IsWild(cards[0]);
+    }
+
+    void RefreshWildColorControls(ScanState state, IReadOnlyList<CardEntry> cards)
+    {
+        bool show = NeedsWildColor(state, cards);
+        if (wildColorControls != null)
+            wildColorControls.SetActive(show);
+
+        if (wildColorText != null)
+            wildColorText.text = string.IsNullOrEmpty(pendingWildColor)
+                ? "Choose\ncolour" : $"Selected:\n{pendingWildColor}";
     }
 
     public void Render(ScanState state, Texture2D frame, IReadOnlyList<CardEntry> cards, string message)
     {
+        // Clear a pending colour on every new round, including controller/HUD rescans.
+        if (state == ScanState.Scanning && lastRenderedState != ScanState.Scanning)
+            pendingWildColor = null;
+        lastRenderedState = state;
+        RefreshWildColorControls(state, cards);
+
         // The thumbnail is only shown once the result is frozen. During a round every frame is a
         // half-finished picture, and showing them is exactly what made the panel flicker.
         if (frameImage != null)
@@ -166,14 +275,17 @@ public class ScanPanel : MonoBehaviour, IScanView
         }
 
         if (statusText != null)
-            statusText.text = StatusLine(state, cards, message);
+            statusText.text = $"{TargetName}: {StatusLine(state, cards, message)}";
 
         if (listText != null)
             listText.text = CardList(state, cards, message);
 
         // Scan means "look again now", so it stays pressable in Reviewing as well.
         if (scanButton != null)
-            scanButton.interactable = state != ScanState.Scanning && state != ScanState.Confirmed;
+            scanButton.interactable = state != ScanState.Scanning;
+
+        if (scanDiscardButton != null)
+            scanDiscardButton.interactable = state != ScanState.Scanning;
 
         if (rescanButton != null)
             rescanButton.interactable = state != ScanState.Scanning;
@@ -181,6 +293,8 @@ public class ScanPanel : MonoBehaviour, IScanView
         // Confirm needs at least one card, per the spec.
         if (confirmButton != null)
             confirmButton.interactable = state == ScanState.Reviewing && cards.Count > 0;
+
+        RefreshSavedState();
     }
 
     /// <summary>
@@ -195,7 +309,35 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (client.State != ScanState.Scanning)
             return;
 
-        statusText.text = $"Recognising... {client.ScanElapsedSeconds:F1}s";
+        statusText.text = $"Recognising {TargetName}... {client.ScanElapsedSeconds:F1}s";
+    }
+
+    void RefreshSavedState()
+    {
+        if (savedStateText == null)
+            return;
+
+        if (session == null)
+        {
+            savedStateText.text = "Saved state unavailable";
+            return;
+        }
+
+        var text = new StringBuilder("Saved hand: ");
+        if (!session.HasHand)
+            text.Append("not confirmed");
+
+        for (int i = 0; i < session.Hand.Count; i++)
+        {
+            if (i > 0) text.Append(", ");
+            text.Append(session.Hand[i].DisplayName);
+        }
+
+        text.Append("\nSaved discard: ");
+        text.Append(session.Discard != null ? session.Discard.DisplayName : "not confirmed");
+        text.Append("\nActive colour: ");
+        text.Append(session.ActiveColor ?? "not set");
+        savedStateText.text = text.ToString();
     }
 
     static string StatusLine(ScanState state, IReadOnlyList<CardEntry> cards, string message)
@@ -260,8 +402,7 @@ public class ScanPanel : MonoBehaviour, IScanView
             sb.Append(line);
         }
 
-        // A round that found nothing keeps the old list; say so instead of letting the player
-        // wonder why the result did not change.
+        // Preserve round warnings, such as a scan that stopped before becoming stable.
         if (state == ScanState.Reviewing && !string.IsNullOrEmpty(message))
             sb.Append($"\n<size=80%><color=#F5B301>{message}</color></size>");
 
