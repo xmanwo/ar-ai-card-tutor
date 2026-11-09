@@ -92,7 +92,7 @@ public class CardScanClient : MonoBehaviour
     /// <summary>Why the last request failed. Only meaningful in <see cref="ScanState.Error"/>.</summary>
     public string LastError { get; private set; }
 
-    /// <summary>A short remark shown under the result, e.g. "kept the previous result".</summary>
+    /// <summary>A short remark shown under the result, e.g. an unstable scan warning.</summary>
     public string Notice { get; private set; }
 
     public bool IsBusy { get; private set; }
@@ -242,6 +242,14 @@ public class CardScanClient : MonoBehaviour
     {
         if (IsBusy)
             return;
+
+        // Camera unavailability must also end a round, even when no frame was captured.
+        if (Time.unscaledTime - scanStartedAt >= maxScanSeconds || requestCount >= maxRequestsPerRound)
+        {
+            Freeze(unstable: true);
+            LogRound();
+            return;
+        }
 
         if (Time.unscaledTime - lastRequestAt < requestInterval)
             return;
@@ -456,18 +464,8 @@ public class CardScanClient : MonoBehaviour
 
         if (frozen.Count == 0)
         {
-            // A round that finds nothing must not wipe a good result off the screen.
-            if (Cards.Count > 0)
-            {
-                Notice = "Nothing recognised this time - keeping the previous result.";
-                SetState(ScanState.Reviewing);
-            }
-            else
-            {
-                Notice = null;
-                SetState(ScanState.Failed);
-            }
-
+            Notice = null;
+            SetState(ScanState.Failed);
             Render();
             return;
         }
@@ -530,19 +528,23 @@ public class CardScanClient : MonoBehaviour
     /// </summary>
     public void Rescan()
     {
-        // A press during a round is ignored, not queued: restarting mid-scan would throw away
-        // three seconds of tracks and the player would see the counter jump back to zero.
-        if (State == ScanState.Scanning)
-            return;
+        TryRescan();
+    }
+
+    /// <summary>True only when a new round was accepted. Rejected requests leave the draft intact.</summary>
+    public bool TryRescan()
+    {
+        if (State == ScanState.Scanning || IsBusy)
+            return false;
 
         if (Time.unscaledTime - lastRescanAt < rescanCooldownSeconds)
-            return;
+            return false;
 
         lastRescanAt = Time.unscaledTime;
+        scanEnabled = true;
         Debug.Log("[Scan] rescan requested");
-
-        // Cards are kept on purpose: if this round finds nothing, the old list stays on screen.
         BeginRound();
+        return true;
     }
 
     /// <summary>Kept for the panel's Scan button; same thing as <see cref="Rescan"/>.</summary>
@@ -554,7 +556,7 @@ public class CardScanClient : MonoBehaviour
     /// <summary>Freezes the current list for good.</summary>
     public void Confirm()
     {
-        if (Cards.Count == 0)
+        if (State != ScanState.Reviewing || Cards.Count == 0)
             return;
 
         SetState(ScanState.Confirmed);
@@ -564,6 +566,9 @@ public class CardScanClient : MonoBehaviour
 
     void BeginRound()
     {
+        // Confirmed session data is stored independently; this list is only the new draft.
+        Cards.Clear();
+        lastFrame = null;
         tracks.Clear();
         activeCountHistory.Clear();
         requestCount = 0;

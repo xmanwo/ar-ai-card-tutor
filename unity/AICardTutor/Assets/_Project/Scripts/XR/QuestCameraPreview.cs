@@ -5,6 +5,7 @@ using UnityEngine.Android;
 using UnityEngine.UI;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
+using UnityEngine.XR.Templates.MR;
 
 [RequireComponent(typeof(RawImage))]
 public class QuestCameraPreview : MonoBehaviour
@@ -58,7 +59,7 @@ public class QuestCameraPreview : MonoBehaviour
         // Restart the camera after permission has been granted.
         cameraManager.enabled = false;
         yield return null;
-        cameraManager.enabled = true;
+        EnablePassthroughView();
 
         aspect = GetComponent<AspectRatioFitter>();
         if (aspect == null)
@@ -71,6 +72,28 @@ public class QuestCameraPreview : MonoBehaviour
         enabled = false;
         yield break;
 #endif
+    }
+
+    void EnablePassthroughView()
+    {
+        // Passthrough must not depend on completing the template's disabled onboarding flow.
+        var headCamera = cameraManager.GetComponent<Camera>();
+        if (headCamera != null)
+        {
+            headCamera.clearFlags = CameraClearFlags.SolidColor;
+            headCamera.backgroundColor = Color.clear;
+        }
+
+        var templateBackground = FindFirstObjectByType<FadeMaterial>();
+        if (templateBackground != null && templateBackground.Environment != null)
+        {
+            var backgroundRenderer = templateBackground.Environment.GetComponent<Renderer>();
+            if (backgroundRenderer != null)
+                backgroundRenderer.enabled = false;
+        }
+
+        cameraManager.enabled = true;
+        Debug.Log("[Camera] Passthrough enabled; opaque template background hidden.");
     }
 
     void Update()
