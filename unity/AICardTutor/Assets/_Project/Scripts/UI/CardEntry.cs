@@ -89,7 +89,9 @@ public class CardEntry
         int space = label.IndexOf(' ');
         if (space < 0)
         {
-            color = "Wild";
+            // A single-token label is already complete. Treating "Wild" as colour=Wild,
+            // value=Wild used to render as "Wild Wild" in the list.
+            color = string.Empty;
             value = label;
             return;
         }

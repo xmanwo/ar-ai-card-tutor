@@ -1,13 +1,14 @@
 using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
+using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using UnityEngine.XR;
 using UnityEngine.XR.Hands;
 
 /// <summary>
-/// Controller-free "Rescan" button. A world-space HUD pinned to the left of the view, aimed at with
-/// an index-finger ray and fired by dwelling on it.
+/// Controller-free scanning controls. The left Rescan HUD and ScanPanel buttons share one
+/// index-finger ray and dwell timer.
 ///
 /// This deliberately does NOT recognise gestures. It only asks "where is the fingertip pointing",
 /// which is a continuous quantity, so degraded hand tracking while holding cards costs accuracy
@@ -24,6 +25,9 @@ public class HandRescanHud : MonoBehaviour
     [Tooltip("Leave empty to find the CardScanClient automatically.")]
     public CardScanClient client;
 
+    [Tooltip("Leave empty to find the scan panel. Its buttons use the same finger ray as this HUD.")]
+    public ScanPanel scanPanel;
+
     [Header("Placement (camera local space, metres)")]
     [Tooltip("X right, Y up, Z forward, relative to the head camera. -0.22 sits about 22 deg left.")]
     public Vector3 localOffset = new Vector3(-0.22f, 0.02f, 0.55f);
@@ -33,7 +37,7 @@ public class HandRescanHud : MonoBehaviour
 
     [Header("Aiming")]
     [Tooltip("Seconds the ray must rest on the button before the click fires.")]
-    public float dwellSeconds = 0.55f;
+    public float dwellSeconds = 0.5f;
 
     [Tooltip("Ray reach in metres. A hand hanging at your side can never trigger the button.")]
     public float maxRayDistance = 1.2f;
@@ -73,7 +77,9 @@ public class HandRescanHud : MonoBehaviour
     LineRenderer rayLine;
 
     float dwell;
-    float nextAllowedAt;
+    Button[] panelButtons = new Button[0];
+    Button hoveredButton;
+    bool firedForHover;
     bool hasSmoothed;
     Vector3 smoothedOrigin;
     Vector3 smoothedDirection;
@@ -95,6 +101,11 @@ public class HandRescanHud : MonoBehaviour
         if (client == null)
             Debug.LogError("[HandHud] no CardScanClient found - the button will do nothing.");
 
+        if (scanPanel == null)
+            scanPanel = FindFirstObjectByType<ScanPanel>();
+        if (scanPanel != null)
+            panelButtons = scanPanel.GetComponentsInChildren<Button>(true);
+
         AttachToCamera();
 
         FindHandSubsystem();
@@ -105,6 +116,14 @@ public class HandRescanHud : MonoBehaviour
     {
         if (button != null)
             button.onClick.RemoveListener(OnClick);
+    }
+
+    void OnDisable()
+    {
+        hoveredButton = null;
+        firedForHover = false;
+        dwell = 0f;
+        ShowAim(false);
     }
 
     // ------------------------------------------------------------------ build
@@ -327,19 +346,32 @@ public class HandRescanHud : MonoBehaviour
         if (!TryGetAimRay(out Vector3 origin, out Vector3 direction))
         {
             ShowAim(false);
-            DecayDwell();
+            // Lost tracking cancels progress, but does not re-arm a button already clicked.
+            dwell = 0f;
             return;
         }
 
-        if (!TryHitButton(origin, direction, out Vector3 worldPoint, out Vector2 localPoint))
+        UpdateAim(origin, direction, Time.unscaledDeltaTime);
+    }
+
+    void UpdateAim(Vector3 origin, Vector3 direction, float deltaTime)
+    {
+        var target = FindAimedButton(origin, direction, out Vector3 worldPoint);
+        if (target != hoveredButton)
         {
-            ShowAim(false, origin, direction);
-            DecayDwell();
-            return;
+            hoveredButton = target;
+            dwell = 0f;
+            firedForHover = false;
         }
 
-        ShowAim(true, origin, direction, worldPoint, localPoint);
-        AccumulateDwell();
+        if (target == null || !target.IsInteractable() || firedForHover)
+            dwell = 0f;
+        else
+            dwell += Mathf.Max(0f, deltaTime);
+
+        ShowAim(target != null, target, origin, direction, worldPoint);
+        if (target != null && dwell >= Mathf.Max(0.05f, dwellSeconds))
+            Fire();
     }
 
     void UpdateButtonAvailability()
@@ -440,75 +472,57 @@ public class HandRescanHud : MonoBehaviour
     }
 
     /// <summary>
-    /// Ray / canvas-plane intersection in closed form. No collider, no physics layer, no
-    /// GraphicRaycaster - the HUD is a flat quad, so maths beats a physics query here.
+    /// Hit-test the actual button rectangles, including inactive colour buttons once shown.
+    /// Disabled buttons still count as the hovered target so a completed dwell cannot re-fire
+    /// when scanning finishes and the same button becomes available again.
     /// </summary>
-    bool TryHitButton(Vector3 origin, Vector3 direction, out Vector3 worldPoint, out Vector2 localPoint)
+    Button FindAimedButton(Vector3 origin, Vector3 direction, out Vector3 worldPoint)
     {
+        Button closest = null;
+        float nearest = maxRayDistance;
         worldPoint = default;
-        localPoint = default;
+        CheckButton(button, origin, direction, ref closest, ref nearest, ref worldPoint);
+        foreach (var candidate in panelButtons)
+            CheckButton(candidate, origin, direction, ref closest, ref nearest, ref worldPoint);
+        return closest;
+    }
 
-        Vector3 normal = canvasRect.forward;
+    void CheckButton(Button candidate, Vector3 origin, Vector3 direction,
+        ref Button closest, ref float nearest, ref Vector3 worldPoint)
+    {
+        if (candidate == null || !candidate.isActiveAndEnabled)
+            return;
+
+        var rect = (RectTransform)candidate.transform;
+        Vector3 normal = rect.forward;
         float denominator = Vector3.Dot(direction, normal);
         if (Mathf.Abs(denominator) < 1e-4f)
-            return false; // ray parallel to the button face
-
-        float distance = Vector3.Dot(canvasRect.position - origin, normal) / denominator;
-        if (distance <= 0f || distance > maxRayDistance)
-            return false;
-
-        worldPoint = origin + direction * distance;
-
-        Vector3 inCanvas = canvasRect.InverseTransformPoint(worldPoint);
-        localPoint = new Vector2(inCanvas.x, inCanvas.y);
-
-        return canvasRect.rect.Contains(localPoint);
-    }
-
-    void AccumulateDwell()
-    {
-        if (client == null || button == null || !button.interactable)
-        {
-            DecayDwell();
             return;
-        }
 
-        if (Time.unscaledTime < nextAllowedAt)
-        {
-            DecayDwell();
+        float distance = Vector3.Dot(rect.position - origin, normal) / denominator;
+        if (distance <= 0f || distance > nearest)
             return;
-        }
 
-        dwell += Time.deltaTime;
+        Vector3 point = origin + direction * distance;
+        if (!rect.rect.Contains((Vector2)rect.InverseTransformPoint(point)))
+            return;
 
-        if (ringImage != null)
-        {
-            ringImage.fillAmount = Mathf.Clamp01(dwell / Mathf.Max(0.05f, dwellSeconds));
-        }
-
-        if (dwell >= dwellSeconds)
-            Fire();
-    }
-
-    void DecayDwell()
-    {
-        // Round-off rather than a hard reset: a single dropped hand frame should not undo 400 ms
-        // of holding still.
-        dwell = Mathf.Max(0f, dwell - Time.deltaTime * 2.5f);
-        if (ringImage != null)
-            ringImage.fillAmount = Mathf.Clamp01(dwell / Mathf.Max(0.05f, dwellSeconds));
+        closest = candidate;
+        nearest = distance;
+        worldPoint = point;
     }
 
     void Fire()
     {
         dwell = 0f;
-        nextAllowedAt = Time.unscaledTime + 1.1f;
+        firedForHover = true;
 
         if (ringImage != null)
             ringImage.fillAmount = 0f;
 
-        Debug.Log($"[HandHud] rescan via hand at {Time.unscaledTime:F1}s");
-        OnClick();
+        Debug.Log($"[HandHud] dwell click {hoveredButton.name} at {Time.unscaledTime:F1}s");
+        var pointer = new PointerEventData(EventSystem.current) { button = PointerEventData.InputButton.Left };
+        ExecuteEvents.Execute(hoveredButton.gameObject, pointer, ExecuteEvents.pointerClickHandler);
     }
 
     void OnClick()
@@ -517,14 +531,19 @@ public class HandRescanHud : MonoBehaviour
             client.Rescan();
     }
 
-    void ShowAim(bool visible, Vector3 origin = default, Vector3 direction = default,
-                 Vector3 worldPoint = default, Vector2 localPoint = default)
+    void ShowAim(bool visible, Button target = null, Vector3 origin = default, Vector3 direction = default,
+                 Vector3 worldPoint = default)
     {
+        if (visible && target != null)
+        {
+            var rect = (RectTransform)target.transform;
+            PlaceFeedback(cursorImage, rect, worldPoint, target == button ? 20f : 10f);
+            PlaceFeedback(ringImage, rect, worldPoint, target == button ? 184f : 44f);
+        }
+
         if (cursorImage != null)
         {
             cursorImage.enabled = visible;
-            if (visible)
-                cursorImage.rectTransform.anchoredPosition = localPoint;
         }
 
         // The ring only appears once the dwell actually starts, so an idle hand leaves no clutter.
@@ -532,8 +551,7 @@ public class HandRescanHud : MonoBehaviour
         {
             bool ringVisible = visible && dwell > 0.02f;
             ringImage.enabled = ringVisible;
-            if (ringVisible)
-                ringImage.rectTransform.anchoredPosition = localPoint;
+            ringImage.fillAmount = Mathf.Clamp01(dwell / Mathf.Max(0.05f, dwellSeconds));
         }
 
         if (rayLine == null)
@@ -549,6 +567,19 @@ public class HandRescanHud : MonoBehaviour
         rayLine.enabled = true;
         rayLine.SetPosition(0, origin);
         rayLine.SetPosition(1, end);
+    }
+
+    void PlaceFeedback(Image image, RectTransform target, Vector3 point, float size)
+    {
+        if (image == null)
+            return;
+
+        // Keep feedback owned by this HUD, but draw it at the hit button's position and scale.
+        var rect = image.rectTransform;
+        rect.sizeDelta = Vector2.one * size;
+        rect.SetPositionAndRotation(point - target.forward * 0.001f, target.rotation);
+        rect.localScale = new Vector3(target.lossyScale.x / Safe(canvasRect.lossyScale.x),
+            target.lossyScale.y / Safe(canvasRect.lossyScale.y), target.lossyScale.z / Safe(canvasRect.lossyScale.z));
     }
 
     // ------------------------------------------------------------------ diagnostics
