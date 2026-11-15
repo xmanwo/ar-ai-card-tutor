@@ -163,6 +163,8 @@ public class HandRescanHud : MonoBehaviour
 
         buttonImage = buttonRect.gameObject.AddComponent<Image>();
         buttonImage.color = Navy;
+        // A disc instead of a square, so the button reads as a round target like the dwell ring.
+        buttonImage.sprite = MakeDiscSprite(128, 0f);
 
         var outline = buttonRect.gameObject.AddComponent<Outline>();
         outline.effectColor = Amber;
@@ -492,6 +494,21 @@ public class HandRescanHud : MonoBehaviour
     {
         if (candidate == null || !candidate.isActiveAndEnabled)
             return;
+
+        // A colour-wheel slice covers the same rectangle as the other three, so the rectangular
+        // test below would always report the first one. Let the slice answer by angle instead.
+        var sector = candidate.GetComponent<WildColorSector>();
+
+        if (sector != null)
+        {
+            if (!sector.TryHit(origin, direction, nearest, out Vector3 sectorPoint))
+                return;
+
+            closest = candidate;
+            nearest = Vector3.Distance(origin, sectorPoint);
+            worldPoint = sectorPoint;
+            return;
+        }
 
         var rect = (RectTransform)candidate.transform;
         Vector3 normal = rect.forward;
