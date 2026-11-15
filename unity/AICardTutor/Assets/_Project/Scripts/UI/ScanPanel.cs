@@ -20,7 +20,15 @@ public class ScanPanel : MonoBehaviour, IScanView
     public Button scanDiscardButton;
     public TMP_Text savedStateText;
 
-    public ScanTarget ActiveTarget { get; private set; } = ScanTarget.Hand;
+    [Header("Tutor")]
+    [Tooltip("Optional. When present, confirming a hand or the discard refreshes the advice.")]
+    public TutorService tutor;
+
+    /// <summary>
+    /// Which pile the next scan targets. A game always starts by reading the discard pile, because
+    /// the hand can only be judged against a known top card, so that is the default.
+    /// </summary>
+    public ScanTarget ActiveTarget { get; private set; } = ScanTarget.Discard;
     string TargetName => ActiveTarget == ScanTarget.Hand ? "Hand" : "Discard";
 
     [Header("Wild colour")]
@@ -49,7 +57,7 @@ public class ScanPanel : MonoBehaviour, IScanView
              "Kept nearer than the camera preview quad (z=1.0) so the two can never fight for depth.")]
     public Vector3 localOffset = new Vector3(0f, -0.26f, 0.85f);
 
-    [Tooltip("Canvas scale. 0.0007 makes the 700x660 canvas 0.49m x 0.462m.")]
+    [Tooltip("Canvas scale. 0.0007 makes the 700x1000 canvas 0.49m x 0.70m.")]
     public float panelScale = 0.0007f;
 
     [Tooltip("Draw the panel after other world-space canvases. Belt and braces against " +
@@ -67,6 +75,9 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         if (session == null)
             session = FindFirstObjectByType<GameSessionState>();
+
+        if (tutor == null)
+            tutor = FindFirstObjectByType<TutorService>();
 
         // Existing prefabs also need the XR receiver, not only newly created canvases.
         if (GetComponent<TrackedDeviceGraphicRaycaster>() == null)
@@ -86,6 +97,8 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (listText != null) listText.raycastTarget = false;
         if (savedStateText != null) savedStateText.raycastTarget = false;
 
+        ApplyLayout();
+
         if (scanButton != null)
             scanButton.onClick.AddListener(OnScan);
 
@@ -97,6 +110,97 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         if (confirmButton != null)
             confirmButton.onClick.AddListener(OnConfirm);
+    }
+
+    /// <summary>Height of the panel canvas in UI units. Every row below was laid out against it.</summary>
+    public const float PanelHeight = 670f;
+
+    /// <summary>
+    /// Lays the panel out from code, top row first.
+    ///
+    /// Two reasons it does not live in the prefab: a prefab instance keeps its own copy of every
+    /// value it was ever given (this one had been saved at 700x660 and beat every prefab change),
+    /// and the rows only stay clear of each other while a single place owns the vertical budget.
+    /// </summary>
+    void ApplyLayout()
+    {
+        var rect = (RectTransform)transform;
+
+        if (!Mathf.Approximately(rect.sizeDelta.y, PanelHeight))
+            rect.sizeDelta = new Vector2(rect.sizeDelta.x, PanelHeight);
+
+        // Sit a little higher than the old 0.26 m drop: the bottom rows were below the eye line.
+        if (Mathf.Approximately(localOffset.y, -0.26f))
+            localOffset.y = -0.20f;
+
+        // Vertical budget on a 670 tall canvas (335 at the top, -335 at the bottom):
+        //   status        327 .. 255
+        //   frame / list  248 ..  68
+        //   wheel         203 ..  83   right column, replaces the list while picking
+        //   headline       59 ..   7
+        //   reasons         1 .. -91
+        //   blocked       -97 .. -165
+        //   saved        -171 .. -255   three lines, so it needs 84 and not 52
+        //   buttons      -327 .. -263
+        if (statusText != null)
+        {
+            statusText.rectTransform.sizeDelta = new Vector2(-40f, 72f);
+            statusText.rectTransform.anchoredPosition = new Vector2(0f, -8f);
+            statusText.fontSize = 28f;
+        }
+
+        // Frame hugs the left edge, card list hugs the right edge, so the middle stays free.
+        Place(frameImage != null ? frameImage.rectTransform : null, 180f, 180f, -240f, 158f);
+        Place(listText != null ? listText.rectTransform : null, 280f, 180f, 190f, 158f);
+
+        // Three lines at 22pt: the box has to be tall enough for all of them, otherwise the last
+        // one ("Active colour") runs down into the button row.
+        if (savedStateText != null)
+            savedStateText.overflowMode = TextOverflowModes.Ellipsis;
+
+        Place(savedStateText != null ? savedStateText.rectTransform : null, 660f, 84f, 0f, -213f);
+
+        var tutorPanel = GetComponent<TutorPanel>();
+
+        if (tutorPanel != null)
+        {
+            Place(tutorPanel.legalText != null ? tutorPanel.legalText.rectTransform : null,
+                660f, 52f, 0f, 33f);
+            Place(tutorPanel.reasonText != null ? tutorPanel.reasonText.rectTransform : null,
+                660f, 92f, 0f, -45f);
+            Place(tutorPanel.blockedText != null ? tutorPanel.blockedText.rectTransform : null,
+                660f, 68f, 0f, -131f);
+        }
+
+        // The wheel sits in the right column and takes the list's place while it is up.
+        if (wildColorControls != null)
+            Place((RectTransform)wildColorControls.transform, 120f, 120f, 190f, 143f);
+
+        if (wildColorText != null)
+            Place(wildColorText.rectTransform, 200f, 56f, -180f, 0f);
+
+        if (scanButton != null && scanButton.transform.parent is RectTransform row)
+        {
+            row.sizeDelta = new Vector2(660f, 64f);
+            row.anchoredPosition = new Vector2(0f, 8f);
+        }
+
+        // One line in logcat makes a wrong canvas size obvious without guessing from a screenshot.
+        string framePos = frameImage != null
+            ? frameImage.rectTransform.anchoredPosition.ToString()
+            : "none";
+
+        Debug.Log($"[ScanPanel] canvas {rect.sizeDelta.x:0}x{rect.sizeDelta.y:0}, " +
+                  $"offset {localOffset.y:0.00}, frame {framePos}");
+    }
+
+    static void Place(RectTransform rect, float width, float height, float x, float y)
+    {
+        if (rect == null)
+            return;
+
+        rect.sizeDelta = new Vector2(width, height);
+        rect.anchoredPosition = new Vector2(x, y);
     }
 
     void Start()
@@ -226,6 +330,11 @@ public class ScanPanel : MonoBehaviour, IScanView
         Debug.Log($"[Session] saved {TargetName}: hand={session.Hand.Count}, " +
                   $"discard={session.Discard?.DisplayName ?? "none"}, colour={session.ActiveColor ?? "not set"}");
         client.Confirm();
+
+        // The advice describes the position that was just saved, so refresh it after a successful
+        // save rather than on every frame.
+        if (tutor != null)
+            tutor.Evaluate();
     }
 
     public void SelectWildColor(string color)
@@ -236,6 +345,7 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         pendingWildColor = color;
         RefreshWildColorControls(client.State, client.Cards);
+        RefreshConfirmButton(client.State, client.Cards);
         if (statusText != null)
             statusText.text = $"Discard: {color} selected. Confirm to save.";
     }
@@ -246,11 +356,33 @@ public class ScanPanel : MonoBehaviour, IScanView
             cards != null && cards.Count == 1 && GameSessionState.IsWild(cards[0]);
     }
 
+    /// <summary>
+    /// Confirm stays disabled until every precondition the save will be checked against is met,
+    /// including the colour of a scanned Wild. Done here rather than inside Render so the colour
+    /// buttons can refresh the button the moment a colour is picked.
+    /// </summary>
+    void RefreshConfirmButton(ScanState state, IReadOnlyList<CardEntry> cards)
+    {
+        if (confirmButton == null)
+            return;
+
+        bool needsColour = NeedsWildColor(state, cards);
+        bool colourChosen = !needsColour || !string.IsNullOrEmpty(pendingWildColor);
+
+        confirmButton.interactable =
+            state == ScanState.Reviewing && cards != null && cards.Count > 0 && colourChosen;
+    }
+
     void RefreshWildColorControls(ScanState state, IReadOnlyList<CardEntry> cards)
     {
         bool show = NeedsWildColor(state, cards);
         if (wildColorControls != null)
             wildColorControls.SetActive(show);
+
+        // The wheel sits in the card list's column, so the list steps aside while it is up.
+        // Two blocks in one rectangle is exactly the overlap we keep out of the panel.
+        if (listText != null && listText.enabled == show)
+            listText.enabled = !show;
 
         if (wildColorText != null)
             wildColorText.text = string.IsNullOrEmpty(pendingWildColor)
@@ -290,9 +422,8 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (rescanButton != null)
             rescanButton.interactable = state != ScanState.Scanning;
 
-        // Confirm needs at least one card, per the spec.
-        if (confirmButton != null)
-            confirmButton.interactable = state == ScanState.Reviewing && cards.Count > 0;
+        // Confirm needs at least one card, and a scanned Wild needs its colour chosen first.
+        RefreshConfirmButton(state, cards);
 
         RefreshSavedState();
     }
