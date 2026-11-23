@@ -34,6 +34,9 @@ public class TutorPanel : MonoBehaviour
     {
         if (tutor == null)
             tutor = FindFirstObjectByType<TutorService>();
+
+        if (GetComponent<AiTutorPanel>() == null)
+            gameObject.AddComponent<AiTutorPanel>();
     }
 
     void OnEnable()
@@ -76,7 +79,12 @@ public class TutorPanel : MonoBehaviour
             return;
 
         if (legalText != null)
-            legalText.text = advice.Summary.Resolve();
+        {
+            var faces = GetComponent<CardHandView>();
+            legalText.text = advice.Ready && faces != null && faces.IsAvailable
+                ? (Loc.Current == Language.Zh ? $"可出牌：{advice.LegalCount} 张（绿色描边）" : $"Playable: {advice.LegalCount} cards (green border)")
+                : advice.Summary.Resolve();
+        }
 
         if (reasonText != null)
             reasonText.text = advice.Ready ? Join(advice.LegalLines, maxReasonLines) : string.Empty;

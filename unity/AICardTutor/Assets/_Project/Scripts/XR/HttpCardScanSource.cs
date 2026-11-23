@@ -22,6 +22,7 @@ public class DetectResponse
     public int image_height;
     public float inference_ms;
     public Detection[] detections;
+    public string profile;
 }
 
 /// <summary>How the headset reaches the PC service.</summary>
@@ -204,7 +205,8 @@ public class HttpCardScanSource : MonoBehaviour, ICardScanSource
         {
             var form = new List<IMultipartFormSection>
             {
-                new MultipartFormFileSection("file", frame.jpeg, $"frame_{frame.frameId}.jpg", "image/jpeg")
+                new MultipartFormFileSection("file", frame.jpeg, $"frame_{frame.frameId}.jpg", "image/jpeg"),
+                new MultipartFormDataSection("scan_target", frame.target == ScanTarget.Hand ? "hand" : "discard")
             };
 
             request = UnityWebRequest.Post(url, form);
@@ -253,14 +255,31 @@ public class HttpCardScanSource : MonoBehaviour, ICardScanSource
             }
 
             if (parsed.frame_id != frame.frameId)
-                Debug.LogWarning($"[Scan] frame id mismatch: sent {frame.frameId}, got {parsed.frame_id}");
+            {
+                onFailure?.Invoke($"Frame id mismatch: sent {frame.frameId}, got {parsed.frame_id}", false);
+                yield break;
+            }
+            if (frame.cropped && (parsed.image_width <= 0 || parsed.image_height <= 0))
+            {
+                onFailure?.Invoke("Cropped response is missing image dimensions.", false);
+                yield break;
+            }
 
             var cards = new List<CardEntry>();
 
             if (parsed.detections != null)
             {
                 foreach (var detection in parsed.detections)
+                {
+                    if (detection == null) continue;
+                    if (frame.cropped)
+                    {
+                        detection.bbox_xyxy = HandCropGeometry.RestoreBox(detection.bbox_xyxy,
+                            parsed.image_width, parsed.image_height, frame.crop, frame.fullWidth, frame.fullHeight);
+                        if (detection.bbox_xyxy == null) continue;
+                    }
                     cards.Add(CardEntry.FromModel(detection));
+                }
             }
 
             // The panel shows this line, so the live transport is visible without a logcat.
@@ -271,7 +290,8 @@ public class HttpCardScanSource : MonoBehaviour, ICardScanSource
                 frameId = frame.frameId,
                 cards = cards,
                 latencyMs = elapsedMs,
-                note = $"{parsed.inference_ms:F0}ms inference · {via}"
+                note = $"{parsed.inference_ms:F0}ms inference · {via} · {parsed.profile ?? "legacy"}" +
+                    (frame.cropped ? $" · crop {frame.crop.Width}x{frame.crop.Height}" : " · full frame")
             });
         }
     }

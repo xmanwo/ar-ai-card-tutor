@@ -86,6 +86,14 @@ desktop.ini
 # ---- Local debug output (never commit) --------------------------------
 .workbuddy-ai/
 .debug/
+/training_runs/
+/output/
+/yolo/*.zip
+/yolo/Run_Guide_*.md
+/yolo/*/.ultralytics/
+/yolo/*/Ultralytics/
+/yolo/*/samples/
+/yolo/*/snapshots/
 captures/
 unity/AICardTutor/buildtest/
 

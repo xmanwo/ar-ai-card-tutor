@@ -15,7 +15,7 @@ Stages 1, 3, 9 and 10.
 2. **Never commit Unity's `Library/` folder.** The `.gitignore` handles this for you.
 3. **Always commit a `.meta` file together with its asset.** Without it, links between
    files break for everyone else.
-4. **Only one person edits a given scene at a time.** `Main.unity` has one owner.
+4. **Only one person edits a given scene at a time.** `SampleScene.unity` has one owner.
 5. The `main` branch must always open and build. Work on your own branch and merge
    through a **pull request with at least 1 approval**.
 
@@ -204,8 +204,8 @@ Every work session:
 7. Everyone pulls `main` again.
 
 **Avoiding scene conflicts:** `.unity` and `.prefab` files are long text files Git cannot
-merge safely. `Main.unity` has one owner; others build their feature in their own Sandbox
-scene, save it as a prefab, and ask the owner to place it in `Main.unity`. Keep logic in
+merge safely. `SampleScene.unity` has one owner; others build their feature in their own Sandbox
+scene, save it as a prefab, and ask the owner to place it in `SampleScene.unity`. Keep logic in
 scripts and settings in ScriptableObject assets (`Config/`), which merge much more easily.
 
 **Secrets:** never commit secrets — the repository is public. The AI layer needs an API

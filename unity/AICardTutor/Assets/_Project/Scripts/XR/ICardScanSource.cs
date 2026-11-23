@@ -8,11 +8,19 @@ public struct ScanFrame
 {
     public int frameId;
 
-    /// <summary>The frame as a texture, for display.</summary>
+    /// <summary>Choose the hand-specific recognition profile without changing discard scanning.</summary>
+    public ScanTarget target;
+
+    /// <summary>The complete original frame as a texture, for display.</summary>
     public Texture2D texture;
 
-    /// <summary>The same frame encoded as JPEG. Sources that send it over the network use this.</summary>
+    /// <summary>Upload JPEG, which may contain only crop while texture retains the full photo.</summary>
     public byte[] jpeg;
+
+    /// <summary>Uploaded pixels' location within the full preview, top-left origin.</summary>
+    public HandCropGeometry.Crop crop;
+    public int fullWidth, fullHeight;
+    public bool cropped;
 }
 
 /// <summary>What a scan source hands back.</summary>

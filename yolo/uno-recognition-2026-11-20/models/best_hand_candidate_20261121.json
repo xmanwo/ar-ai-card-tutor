@@ -1,0 +1,111 @@
+{
+  "model_file": "best_hand_candidate_20261121.pt",
+  "sha256": "ec3a223a91e5641fd0dad7e5af8326b044e4965179a48c3979aab90a6f71cc3f",
+  "status": "candidate_for_local_Quest_AB_test",
+  "base_model": "best.pt",
+  "base_model_unchanged": true,
+  "training": {
+    "completed_epochs": 17,
+    "planned_epochs": 18,
+    "best_epoch": 11,
+    "early_stopping_patience": 6,
+    "imgsz": 640,
+    "seed": 20261121,
+    "real_images_including_holdouts": 2357,
+    "synthetic_fans_train_only": 800,
+    "corner_crops_train_only": 400,
+    "train_images": 3062,
+    "val_images": 239,
+    "test_images": 256,
+    "user_phone_or_quest_images_used_in_training": false
+  },
+  "data_sources": [
+    {
+      "author": "University of trento",
+      "url": "https://universe.roboflow.com/university-of-trento-bsapj/uno-dataset/dataset/3",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0/"
+    },
+    {
+      "author": "Ivan Moskalev",
+      "url": "https://universe.roboflow.com/ivan-moskalev-uwzkq/unocardmodel_v3/dataset/3",
+      "license": "Public Domain",
+      "changes": "Excluded incompatible UNO Flip classes; remapped retained corner labels by name."
+    },
+    {
+      "author": "Dmitry Fomin; PNG distribution celsiusnarhwal/uno",
+      "url": "https://github.com/celsiusnarhwal/uno",
+      "license": "CC0-1.0",
+      "changes": "Synthetic overlapping fanned hands with rotations, occlusion and glyph visibility masks."
+    }
+  ],
+  "data_mirror": {
+    "url": "https://github.com/Stormynova/Uno_Card_detection",
+    "commit": "538bc836fbd56693f3d73e2a7f17c9a85df07734"
+  },
+  "modifications": "Deduplicated images; grouped original and augmented variants before splitting; generated training-only crops and synthetic hands; fine-tuned deployed YOLOv8s on 54 compatible corner classes.",
+  "comparison": {
+    "baseline": {
+      "public_test": {
+        "precision": 0.8668746641277472,
+        "recall": 0.8395003048195357,
+        "map50": 0.918064138968612,
+        "map50_95": 0.6418140361821381,
+        "classes_with_ground_truth": 52
+      },
+      "phone_multiscale": {
+        "count": 5,
+        "matched_instances": 5,
+        "missing": [
+          "blue 5",
+          "green 4",
+          "green draw 2"
+        ],
+        "extra": [],
+        "all_labels_exact": false,
+        "inference_ms": 27.64,
+        "timing_policy": "Median of 5 warmed GPU calls; no transport/JPEG decode/Unity voting."
+      }
+    },
+    "candidate": {
+      "public_test": {
+        "precision": 0.8907666017884538,
+        "recall": 0.8673963255758742,
+        "map50": 0.9459111800022911,
+        "map50_95": 0.5907177127382383,
+        "classes_with_ground_truth": 52
+      },
+      "phone_multiscale": {
+        "count": 7,
+        "matched_instances": 7,
+        "missing": [
+          "green draw 2"
+        ],
+        "extra": [],
+        "all_labels_exact": false,
+        "inference_ms": 26.19,
+        "timing_policy": "Median of 5 warmed GPU calls; no transport/JPEG decode/Unity voting."
+      }
+    }
+  },
+  "trial": {
+    "launcher": "run_trained_hand_test.bat",
+    "scales": [
+      256,
+      416,
+      512,
+      640
+    ],
+    "confidence": 0.25,
+    "rotated_hand_enhancement": false,
+    "captures": "Local only, .debug/recognition_frames_candidate, capped at 150 per service process.",
+    "fallback": "Close candidate service and launch run_ai_server.bat for original model."
+  },
+  "limitations": [
+    "Single phone photograph is a development challenge example, not a statistically independent accuracy benchmark. Green Draw Two remains missed in this photo.",
+    "Public test covers 52 of 54 classes and may overlap the historical baseline training corpus. mAP50 improved but mAP50-95 regressed.",
+    "Qualitative Quest frame previews include number confusions and background false detections; no ground-truth Quest accuracy is claimed.",
+    "Timing is median of five warmed GPU calls and excludes image decoding, USB, client capture and voting.",
+    "A direct standalone Quest AB run is still required; no APK rebuild is needed."
+  ]
+}
