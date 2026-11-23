@@ -12,6 +12,7 @@ public sealed class ConfirmedCard
     public readonly string value;
     public readonly CardSource source;
     public readonly float confidence;
+    public readonly bool uncertain;
 
     public ConfirmedCard(CardEntry card)
     {
@@ -20,6 +21,7 @@ public sealed class ConfirmedCard
         value = card.value;
         source = card.source;
         confidence = card.confidence;
+        uncertain = card.uncertain;
     }
 
     public string DisplayName =>

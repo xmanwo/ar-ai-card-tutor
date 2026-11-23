@@ -101,15 +101,21 @@ public class HandRescanHud : MonoBehaviour
         if (client == null)
             Debug.LogError("[HandHud] no CardScanClient found - the button will do nothing.");
 
-        if (scanPanel == null)
-            scanPanel = FindFirstObjectByType<ScanPanel>();
-        if (scanPanel != null)
-            panelButtons = scanPanel.GetComponentsInChildren<Button>(true);
+        RefreshPanelButtons();
 
         AttachToCamera();
 
         FindHandSubsystem();
         LogSubsystemReport();
+    }
+
+    /// <summary>Call after adding controls at runtime; Start order must not decide which buttons work.</summary>
+    public void RefreshPanelButtons()
+    {
+        if (scanPanel == null)
+            scanPanel = FindFirstObjectByType<ScanPanel>();
+        panelButtons = scanPanel != null
+            ? scanPanel.GetComponentsInChildren<Button>(true) : new Button[0];
     }
 
     void OnDestroy()

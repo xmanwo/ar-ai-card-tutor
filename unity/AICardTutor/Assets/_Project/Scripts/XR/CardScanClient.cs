@@ -98,6 +98,7 @@ public class CardScanClient : MonoBehaviour
     public bool IsBusy { get; private set; }
     public float LastLatencyMs { get; private set; }
     public string LastNote { get; private set; }
+    public int LastCapturedFrameId { get; private set; }
 
     /// <summary>Seconds the current round has been running. The panel ticks this while scanning.</summary>
     public float ScanElapsedSeconds =>
@@ -131,6 +132,8 @@ public class CardScanClient : MonoBehaviour
         public float bestConf = -1f;
         public float[] bestBbox;
         public readonly Dictionary<string, int> votes = new Dictionary<string, int>();
+        public readonly Dictionary<string, float> labelConfidence = new Dictionary<string, float>();
+        public readonly Dictionary<string, float[]> labelBoxes = new Dictionary<string, float[]>();
     }
 
     void Awake()
@@ -262,7 +265,8 @@ public class CardScanClient : MonoBehaviour
         IsBusy = true;
         lastRequestAt = Time.unscaledTime;
 
-        if (!capture.CaptureForScan())
+        ScanTarget target = view is ScanPanel targetPanel ? targetPanel.ActiveTarget : ScanTarget.Hand;
+        if (!capture.CaptureForScan(target))
         {
             // The camera has not produced an image yet. Not a request, just wait for the next tick.
             IsBusy = false;
@@ -273,8 +277,14 @@ public class CardScanClient : MonoBehaviour
         {
             frameId = capture.LastFrameId,
             texture = capture.LastTexture,
-            jpeg = capture.LastJpeg
+            jpeg = capture.LastJpeg,
+            target = target,
+            crop = capture.LastScanCrop,
+            fullWidth = capture.LastTexture.width,
+            fullHeight = capture.LastTexture.height,
+            cropped = capture.LastScanCropped
         };
+        LastCapturedFrameId = frame.frameId;
 
         requestCount++;
 
@@ -307,6 +317,8 @@ public class CardScanClient : MonoBehaviour
         LastNote = result.note;
 
         int detected = result.cards != null ? result.cards.Count : 0;
+        if (target == ScanTarget.Hand && capture.handRoi != null)
+            capture.handRoi.RecordResult(result.cards);
         ApplyDetections(result.cards, capture.LastTexture);
 
         if (TryFreeze(detected))
@@ -325,15 +337,30 @@ public class CardScanClient : MonoBehaviour
 
         if (cards != null)
         {
+            var valid = new List<CardEntry>();
             foreach (var card in cards)
             {
-                if (card.bbox == null || card.bbox.Length < 4)
-                    continue;
+                if (card != null && card.bbox != null && card.bbox.Length >= 4)
+                    valid.Add(card);
+            }
+            var points = new CornerTrackMatcher.Point[valid.Count];
+            for (int i = 0; i < valid.Count; i++)
+                points[i] = new CornerTrackMatcher.Point(
+                    (valid[i].bbox[0] + valid[i].bbox[2]) * 0.5f,
+                    (valid[i].bbox[1] + valid[i].bbox[3]) * 0.5f);
+            var previous = new CornerTrackMatcher.Point[tracks.Count];
+            for (int i = 0; i < tracks.Count; i++)
+                previous[i] = new CornerTrackMatcher.Point(tracks[i].cx, tracks[i].cy);
+            int[] matches = CornerTrackMatcher.Match(points, previous, matchRadius);
+
+            for (int i = 0; i < valid.Count; i++)
+            {
+                CardEntry card = valid[i];
 
                 float cx = (card.bbox[0] + card.bbox[2]) * 0.5f;
                 float cy = (card.bbox[1] + card.bbox[3]) * 0.5f;
 
-                Track track = FindNearest(cx, cy, matchRadius);
+                Track track = matches[i] >= 0 ? tracks[matches[i]] : null;
 
                 if (track == null)
                 {
@@ -350,6 +377,11 @@ public class CardScanClient : MonoBehaviour
                 string label = card.DisplayName;
                 track.votes.TryGetValue(label, out int votes);
                 track.votes[label] = votes + 1;
+                if (!track.labelConfidence.TryGetValue(label, out float score) || card.confidence > score)
+                {
+                    track.labelConfidence[label] = card.confidence;
+                    track.labelBoxes[label] = card.bbox;
+                }
 
                 // Keep the best frame, not the latest: the last frame of a round is usually the
                 // one with a hand across it.
@@ -372,27 +404,6 @@ public class CardScanClient : MonoBehaviour
 
         if (activeCountHistory.Count > stableWindow)
             activeCountHistory.RemoveAt(0);
-    }
-
-    Track FindNearest(float cx, float cy, float maxDistance)
-    {
-        Track best = null;
-        float bestDistance = maxDistance;
-
-        foreach (var track in tracks)
-        {
-            float dx = track.cx - cx;
-            float dy = track.cy - cy;
-            float distance = Mathf.Sqrt(dx * dx + dy * dy);
-
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                best = track;
-            }
-        }
-
-        return best;
     }
 
     // ------------------------------------------------------------------ freeze
@@ -502,8 +513,10 @@ public class CardScanClient : MonoBehaviour
 
             float share = totalVotes > 0 ? (float)bestVotes / totalVotes : 0f;
 
-            var entry = CardEntry.FromLabel(label, track.bestConf, track.bestBbox);
-            entry.uncertain = track.bestConf < uncertainConfidence || share < uncertainVoteShare;
+            float confidence = track.labelConfidence.TryGetValue(label, out float score) ? score : track.bestConf;
+            float[] box = track.labelBoxes.TryGetValue(label, out float[] bestBox) ? bestBox : track.bestBbox;
+            var entry = CardEntry.FromLabel(label, confidence, box);
+            entry.uncertain = confidence < uncertainConfidence || share < uncertainVoteShare;
             result.Add(entry);
         }
 
@@ -566,9 +579,11 @@ public class CardScanClient : MonoBehaviour
 
     void BeginRound()
     {
+        if (capture != null && capture.handRoi != null) capture.handRoi.ResetRound();
         // Confirmed session data is stored independently; this list is only the new draft.
         Cards.Clear();
         lastFrame = null;
+        LastCapturedFrameId = 0;
         tracks.Clear();
         activeCountHistory.Clear();
         requestCount = 0;

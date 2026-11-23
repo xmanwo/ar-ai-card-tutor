@@ -1,0 +1,12 @@
+# Recognition service dependencies — tested on Python 3.12, Windows 11.
+# PyTorch is pulled in by ultralytics. That default build is CPU-only; see README
+# for the one-line GPU upgrade if the machine has an NVIDIA card.
+
+ultralytics==8.4.177
+fastapi>=0.115,<1.0
+uvicorn>=0.30,<1.0
+python-multipart>=0.0.9
+opencv-python>=4.9
+numpy>=1.26
+pillow>=10.0
+requests>=2.31

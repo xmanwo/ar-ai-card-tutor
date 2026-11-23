@@ -1,0 +1,4 @@
+-r requirements.txt
+
+# HTTP test client used by the offline API checks.
+httpx==0.28.1

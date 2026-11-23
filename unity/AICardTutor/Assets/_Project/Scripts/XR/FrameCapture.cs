@@ -31,7 +31,7 @@ public class FrameCapture : MonoBehaviour
     [Tooltip("JPEG quality for manual captures written to disk.")]
     [Range(40, 100)] public int savedJpegQuality = 90;
 
-    /// <summary>JPEG bytes of the most recent capture. Reuse these for upload.</summary>
+    /// <summary>Upload JPEG: cropped for focused hand scans, full-size for other captures.</summary>
     public byte[] LastJpeg { get; private set; }
 
     /// <summary>Monotonic id of the most recent capture. Sent as the X-Frame-Id header.</summary>
@@ -39,25 +39,38 @@ public class FrameCapture : MonoBehaviour
 
     /// <summary>Texture of the most recent capture, for the result panel's thumbnail.</summary>
     public Texture2D LastTexture { get; private set; }
+    /// <summary>Exact texture used to encode LastJpeg, before JPEG compression.</summary>
+    public Texture2D LastRecognitionTexture { get; private set; }
 
     /// <summary>Full path of the most recent manual capture. Null for scan frames.</summary>
     public string LastSavedPath { get; private set; }
 
+    public HandRoiProvider handRoi;
+    /// <summary>Actual uploaded area, in full upright image pixels (top-left origin).</summary>
+    public HandCropGeometry.Crop LastScanCrop { get; private set; }
+    public bool LastScanCropped { get; private set; }
+    public string LastCropNote { get; private set; } = "Full frame";
+    Texture2D cropTexture;
+
     int nextFrameId = 1;
+    string lastLoggedCrop;
+    float nextCropLog;
 
     void Awake()
     {
         if (cameraManager == null)
             cameraManager = FindFirstObjectByType<ARCameraManager>();
+        if (handRoi == null) handRoi = GetComponent<HandRoiProvider>();
+        if (handRoi == null) handRoi = gameObject.AddComponent<HandRoiProvider>();
     }
 
     /// <summary>
     /// Grab a frame for the scan loop. Stays in memory: a round takes up to 25 of these and the
     /// headset should not end up with a photo album of them.
     /// </summary>
-    public bool CaptureForScan()
+    public bool CaptureForScan(ScanTarget target = ScanTarget.Hand)
     {
-        return CaptureFrame(saveToDisk: false, quality: scanJpegQuality);
+        return CaptureFrame(saveToDisk: false, quality: scanJpegQuality, target: target);
     }
 
     /// <summary>Grab a frame and keep it on disk. Used for collecting pictures behind bad results.</summary>
@@ -74,7 +87,7 @@ public class FrameCapture : MonoBehaviour
         return ok;
     }
 
-    bool CaptureFrame(bool saveToDisk, int quality)
+    bool CaptureFrame(bool saveToDisk, int quality, ScanTarget target = ScanTarget.Hand)
     {
         if (cameraManager == null)
         {
@@ -87,11 +100,12 @@ public class FrameCapture : MonoBehaviour
 
         using (image)
         {
-            if (LastTexture != null)
-                Destroy(LastTexture);
-
             // Full native resolution: the model needs the detail, so the JPEG is not downscaled.
-            LastTexture = new Texture2D(image.width, image.height, TextureFormat.RGBA32, false);
+            if (LastTexture == null || LastTexture.width != image.width || LastTexture.height != image.height)
+            {
+                if (LastTexture != null) Destroy(LastTexture);
+                LastTexture = new Texture2D(image.width, image.height, TextureFormat.RGBA32, false);
+            }
 
             var conversion = new XRCpuImage.ConversionParams
             {
@@ -104,10 +118,43 @@ public class FrameCapture : MonoBehaviour
 
             image.Convert(conversion, new NativeSlice<byte>(LastTexture.GetRawTextureData<byte>()));
             LastTexture.Apply(false, false);
+            LastScanCrop = !saveToDisk && handRoi != null
+                ? handRoi.GetCrop(cameraManager, image.width, image.height, target)
+                : new HandCropGeometry.Crop(0, 0, image.width, image.height);
+            LastScanCropped = !saveToDisk && handRoi != null && handRoi.LastCropped;
+            LastCropNote = !saveToDisk && handRoi != null ? handRoi.LastNote : "Full frame · Photo";
         }
 
-        LastJpeg = ImageConversion.EncodeToJPG(LastTexture, quality);
+        Texture2D upload = LastTexture;
+        if (LastScanCropped)
+        {
+            var crop = LastScanCrop;
+            if (cropTexture == null || cropTexture.width != crop.Width || cropTexture.height != crop.Height)
+            {
+                if (cropTexture != null) Destroy(cropTexture);
+                cropTexture = new Texture2D(crop.Width, crop.Height, TextureFormat.RGBA32, false);
+            }
+            var pixels = LastTexture.GetRawTextureData<Color32>();
+            var destination = cropTexture.GetRawTextureData<Color32>();
+            // Unity texture rows start at the bottom; JPEG/detection coordinates start at the top.
+            for (int row = 0; row < crop.Height; row++)
+                NativeArray<Color32>.Copy(pixels, HandCropGeometry.TextureRowOffset(crop, LastTexture.width, LastTexture.height, row),
+                    destination, row * crop.Width, crop.Width);
+            cropTexture.Apply(false, false);
+            upload = cropTexture;
+        }
+        LastRecognitionTexture = upload;
+        LastJpeg = ImageConversion.EncodeToJPG(upload, quality);
         LastFrameId = nextFrameId++;
+        if (!saveToDisk && target == ScanTarget.Hand &&
+            (lastLoggedCrop != LastCropNote || Time.unscaledTime >= nextCropLog))
+        {
+            lastLoggedCrop = LastCropNote;
+            nextCropLog = Time.unscaledTime + 2;
+            Debug.Log($"[HandROI] frame={LastFrameId} {LastCropNote.Replace('\n', ' ')} " +
+                $"crop={LastScanCrop.X},{LastScanCrop.Y},{LastScanCrop.Width},{LastScanCrop.Height} " +
+                (handRoi != null ? handRoi.LastDiagnostics : ""));
+        }
 
         if (!saveToDisk)
         {
@@ -132,5 +179,6 @@ public class FrameCapture : MonoBehaviour
     {
         if (LastTexture != null)
             Destroy(LastTexture);
+        if (cropTexture != null) Destroy(cropTexture);
     }
 }

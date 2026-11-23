@@ -37,6 +37,7 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     string pendingWildColor;
     ScanState lastRenderedState = ScanState.Seeking;
+    CardHandView cardFaces;
 
     [Header("Display")]
     public RawImage frameImage;
@@ -98,6 +99,10 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (savedStateText != null) savedStateText.raycastTarget = false;
 
         ApplyLayout();
+
+        cardFaces = GetComponent<CardHandView>();
+        if (cardFaces == null) cardFaces = gameObject.AddComponent<CardHandView>();
+        cardFaces.Initialize(this);
 
         if (scanButton != null)
             scanButton.onClick.AddListener(OnScan);
@@ -397,8 +402,8 @@ public class ScanPanel : MonoBehaviour, IScanView
         lastRenderedState = state;
         RefreshWildColorControls(state, cards);
 
-        // The thumbnail is only shown once the result is frozen. During a round every frame is a
-        // half-finished picture, and showing them is exactly what made the panel flicker.
+        // Frozen results keep their photo. Update() supplies a live photo during a new scan;
+        // the recognised card list itself still waits for the existing freeze rules.
         if (frameImage != null)
         {
             bool showFrame = frame != null && (state == ScanState.Reviewing || state == ScanState.Confirmed);
@@ -411,6 +416,12 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         if (listText != null)
             listText.text = CardList(state, cards, message);
+
+        if (cardFaces != null && cardFaces.IsAvailable)
+        {
+            cardFaces.Render(state, ActiveTarget, cards);
+            if (listText != null) listText.enabled = false;
+        }
 
         // Scan means "look again now", so it stays pressable in Reviewing as well.
         if (scanButton != null)
@@ -429,18 +440,26 @@ public class ScanPanel : MonoBehaviour, IScanView
     }
 
     /// <summary>
-    /// The only per-frame work in the view: while a round runs, the status line counts the seconds
-    /// so the player can tell "still looking" from "stuck".
+    /// Updates scan progress and the live photo/crop overlay without rebuilding card faces.
     /// </summary>
     void Update()
     {
-        if (statusText == null || client == null)
+        if (client == null)
             return;
 
-        if (client.State != ScanState.Scanning)
-            return;
-
-        statusText.text = $"Recognising {TargetName}... {client.ScanElapsedSeconds:F1}s";
+        if (client.State == ScanState.Scanning)
+        {
+            if (statusText != null)
+                statusText.text = $"Recognising {TargetName}... {client.ScanElapsedSeconds:F1}s";
+            // Only the photo updates live; card faces still wait for the existing freeze rules.
+            var capture = client.capture;
+            if (frameImage != null && capture != null && client.LastCapturedFrameId > 0)
+            {
+                frameImage.texture = capture.LastTexture;
+                frameImage.enabled = capture.LastTexture != null;
+            }
+        }
+        if (cardFaces != null && cardFaces.IsAvailable) cardFaces.RefreshPhotoPanel();
     }
 
     void RefreshSavedState()
@@ -457,8 +476,9 @@ public class ScanPanel : MonoBehaviour, IScanView
         var text = new StringBuilder("Saved hand: ");
         if (!session.HasHand)
             text.Append("not confirmed");
-
-        for (int i = 0; i < session.Hand.Count; i++)
+        else if (cardFaces != null && cardFaces.IsAvailable)
+            text.Append(session.Hand.Count).Append(" cards");
+        else for (int i = 0; i < session.Hand.Count; i++)
         {
             if (i > 0) text.Append(", ");
             text.Append(session.Hand[i].DisplayName);

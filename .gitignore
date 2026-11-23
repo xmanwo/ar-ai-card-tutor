@@ -74,6 +74,8 @@ __pycache__/
 .venv/
 venv/
 *.pt
+!/yolo/uno-recognition-2026-11-20/models/best.pt
+!/yolo/uno-recognition-2026-11-20/models/best_hand_candidate_20261121.pt
 
 # ---- Operating system files ------------------------------------------
 .DS_Store
@@ -86,6 +88,14 @@ desktop.ini
 # ---- Local debug output (never commit) --------------------------------
 .workbuddy-ai/
 .debug/
+/training_runs/
+/output/
+/yolo/*.zip
+/yolo/Run_Guide_*.md
+/yolo/*/.ultralytics/
+/yolo/*/Ultralytics/
+/yolo/*/samples/
+/yolo/*/snapshots/
 captures/
 unity/AICardTutor/buildtest/
 
