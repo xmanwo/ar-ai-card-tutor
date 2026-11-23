@@ -1,0 +1,22 @@
+{
+  "published_date": "2026-11-23",
+  "format": "Ultralytics YOLOv8 PyTorch inference checkpoint",
+  "files": [
+    {
+      "file": "best.pt",
+      "role": "baseline",
+      "bytes": 22565795,
+      "sha256": "8ea3b78726f18470281f9a0b64e91c08cdb01404c51f356a44266b940516b5c0"
+    },
+    {
+      "file": "best_hand_candidate_20261121.pt",
+      "role": "trained_candidate",
+      "bytes": 22556522,
+      "sha256": "ec3a223a91e5641fd0dad7e5af8326b044e4965179a48c3979aab90a6f71cc3f"
+    }
+  ],
+  "classes": 54,
+  "baseline_source": "https://github.com/Stormynova/Uno_Card_detection",
+  "candidate_details": "best_hand_candidate_20261121.json",
+  "git_storage": "Ordinary binary Git files; no Git LFS. Other training checkpoints stay ignored."
+}

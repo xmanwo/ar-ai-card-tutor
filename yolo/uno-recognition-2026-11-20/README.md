@@ -1,8 +1,8 @@
 # UNO Recognition Service — Portable Package
 # UNO 识别服务 — 便携包
 
-> Source checkout / 源码仓库：模型权重、样图和原始 ZIP 不在 Git 中。
-> 从组内共享包复制权重到本目录的 `models/`。当前 Unity + DeepSeek + USB
+> Source checkout / 源码仓库：`models/best.pt` 与 `models/best_hand_candidate_20261121.pt`
+> 已随 Git 提供；历史可选权重、样图和原始 ZIP 不在 Git 中。当前 Unity + DeepSeek + USB
 > 流程以仓库根目录 README 和 `yolo/README.md` 为准；下面保留独立识别服务的使用说明。
 
 **EN** — This folder is the PC half of the AR AI Card Tutor demo. The headset sends

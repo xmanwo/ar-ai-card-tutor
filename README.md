@@ -76,11 +76,11 @@ also needs its active colour selected. Confirmed results stay frozen until Resca
 
 1. Install the Python environment with
    `yolo/uno-recognition-2026-11-20/setup_windows.bat`.
-2. Obtain the weights from the team's shared package; weights are intentionally
-   absent from Git. Put `best.pt` and, for the trained trial,
-   `best_hand_candidate_20261121.pt` in `yolo/uno-recognition-2026-11-20/models/`.
-   The candidate's checksum, data credits and limited evaluation are recorded in the
-   adjacent JSON model card. See [`yolo/README.md`](yolo/README.md).
+2. Both runnable weights are included in `yolo/uno-recognition-2026-11-20/models/`:
+   `best.pt` (baseline) and `best_hand_candidate_20261121.pt` (trained trial).
+   No separate model download or Git LFS is required. `weights-manifest.json`
+   records file sizes and SHA-256 checksums; the candidate's adjacent JSON model
+   card records data credits and evaluation limits. See [`yolo/README.md`](yolo/README.md).
 3. Run **one** service launcher: `run_trained_hand_test.bat` for the candidate,
    or `run_ai_server.bat` for the original `best.pt`. Enter your own DeepSeek key
    and keep the window open. `check_deepseek.bat` is an optional connectivity test.
@@ -92,6 +92,8 @@ also needs its active colour selected. Confirmed results stay frozen until Resca
 
 Training preparation, training and evaluation scripts are in `tools/`. They use local
 data under `data/` and write checkpoints to `training_runs/`; neither is committed.
+Only the two explicitly published inference weights are tracked; other `.pt` files
+remain ignored.
 Private camera captures and local experiment reports under `.debug/` and `output/`
 are also excluded. Card-face PNG assets include their CC0 licence and source manifest.
 

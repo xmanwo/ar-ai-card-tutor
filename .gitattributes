@@ -41,6 +41,7 @@
 *.otf binary
 
 # AI models
+*.pt     binary
 *.onnx   binary
 *.sentis binary
 

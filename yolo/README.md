@@ -5,26 +5,28 @@ from the repository root. Keep only one service process on port 8000.
 
 源码位于 `uno-recognition-2026-11-20/`。使用仓库根目录的 BAT 启动，8000 端口只保留一个服务。
 
-## Files not included in Git / 不随 Git 上传的文件
+## Model weights / 模型权重
 
-Obtain these files from the team's shared handoff and copy them into
-`uno-recognition-2026-11-20/models/`:
+The baseline and trained candidate are included in ordinary Git storage under
+`uno-recognition-2026-11-20/models/`. A normal clone includes both, without Git LFS.
 
 | File | Use |
 | --- | --- |
 | `best.pt` | Original baseline; selected by `run_ai_server.bat` |
 | `best_hand_candidate_20261121.pt` | Trained candidate; selected by `run_trained_hand_test.bat` |
-| `best_ft_20261104.pt` | Historical optional model; not selected by either root launcher |
+| `best_ft_20261104.pt` | Historical optional model, shared separately; not included or selected by either root launcher |
 
-模型权重、原始 ZIP、APK、训练集和用户照片均留在共享包或本地，不进入 Git。
-The candidate JSON model card is committed next to the weights' expected location;
-it includes SHA-256, dataset credits, split counts, evaluation limitations and sources.
+原始基线与新训练权重已上传，正常克隆即可取得；其他训练检查点、原始 ZIP、APK、
+训练集和用户照片仍留在共享包或本地。
+`weights-manifest.json` records both files' sizes and SHA-256 checksums. The candidate
+JSON model card records dataset credits, split counts, evaluation limitations and sources.
 
 ## Setup and run / 安装与运行
 
 1. Install Python 3.11–3.13 (locally tested: 3.12.14) and run
    `uno-recognition-2026-11-20/setup_windows.bat`.
-2. Copy the shared weights into `models/` as listed above.
+2. Check that `models/best.pt` and `models/best_hand_candidate_20261121.pt` are present
+   after cloning. Their checksums are in `models/weights-manifest.json`.
 3. Start `run_trained_hand_test.bat` at the repository root. Enter your own DeepSeek
    API key when prompted; it is held in process memory. Keep the service window open.
 4. Connect Quest by USB and allow USB debugging. Run `connect_quest_usb.bat`.
