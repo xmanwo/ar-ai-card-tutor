@@ -103,7 +103,8 @@ public class HandRescanHud : MonoBehaviour
 
         RefreshPanelButtons();
 
-        AttachToCamera();
+        if (!PlaceAbovePhotoPanel())
+            AttachToCamera();
 
         FindHandSubsystem();
         LogSubsystemReport();
@@ -251,6 +252,26 @@ public class HandRescanHud : MonoBehaviour
             mat.SetColor("_BaseColor", Color.white);
         rayLine.sharedMaterial = mat;
         rayLine.enabled = false;
+    }
+
+    bool PlaceAbovePhotoPanel()
+    {
+        // CardHandView reparents the preview into the left photo panel during Awake.
+        if (scanPanel == null || scanPanel.frameImage == null ||
+            scanPanel.frameImage.rectTransform.parent is not RectTransform photoPanel ||
+            photoPanel.parent != scanPanel.transform)
+            return false;
+
+        // Half the original projected diameter after moving from the HUD depth to the panel.
+        const float photoGap = 64f;
+        float diameter = buttonSize * 0.5f * scanPanel.localOffset.z / (localOffset.z * scanPanel.panelScale);
+        canvasRect.SetParent(photoPanel, false);
+        canvasRect.localRotation = Quaternion.identity;
+        canvasRect.localScale = Vector3.one * (diameter / CanvasUnits);
+        canvasRect.anchorMin = canvasRect.anchorMax = new Vector2(0.5f, 1f);
+        canvasRect.anchoredPosition3D = new Vector3(18f, photoGap + diameter * 0.5f, 0f);
+        Debug.Log($"[HandHud] Rescan aligned above {photoPanel.name}: diameter {diameter:F1}, gap {photoGap:F0}, depth offset 0.");
+        return true;
     }
 
     void AttachToCamera()
@@ -491,7 +512,8 @@ public class HandRescanHud : MonoBehaviour
         worldPoint = default;
         CheckButton(button, origin, direction, ref closest, ref nearest, ref worldPoint);
         foreach (var candidate in panelButtons)
-            CheckButton(candidate, origin, direction, ref closest, ref nearest, ref worldPoint);
+            if (candidate != button)
+                CheckButton(candidate, origin, direction, ref closest, ref nearest, ref worldPoint);
         return closest;
     }
 

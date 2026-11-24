@@ -82,7 +82,8 @@ public class TutorPanel : MonoBehaviour
         {
             var faces = GetComponent<CardHandView>();
             legalText.text = advice.Ready && faces != null && faces.IsAvailable
-                ? (Loc.Current == Language.Zh ? $"可出牌：{advice.LegalCount} 张（绿色描边）" : $"Playable: {advice.LegalCount} cards (green border)")
+                ? new TextRef(advice.LegalCount == 1 ? "tutor.playableOne" : "tutor.playableMany",
+                    new TextVar("n", advice.LegalCount.ToString())).Resolve()
                 : advice.Summary.Resolve();
         }
 

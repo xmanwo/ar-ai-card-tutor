@@ -95,11 +95,6 @@ public static class ScanPanelPrefabBuilder
         // Buttons ---------------------------------------------------------
         var buttonRow = CreateChild("ButtonRow", rootRect, typeof(RectTransform));
         var rowRect = buttonRow.GetComponent<RectTransform>();
-        rowRect.anchorMin = new Vector2(0.5f, 0f);
-        rowRect.anchorMax = new Vector2(0.5f, 0f);
-        rowRect.pivot = new Vector2(0.5f, 0f);
-        rowRect.sizeDelta = new Vector2(660f, 72f);
-        rowRect.anchoredPosition = new Vector2(0f, 18f);
 
         var scanButton = CreateButton("Scan Hand", rowRect, new Vector2(-247.5f, 0f));
         var discardButton = CreateButton("Scan Discard", rowRect, new Vector2(-82.5f, 0f));
@@ -138,8 +133,6 @@ public static class ScanPanelPrefabBuilder
             panel.wildColorControls = CreateChild("WildColorControls", panel.transform, typeof(RectTransform));
 
         var row = (RectTransform)panel.wildColorControls.transform;
-        row.sizeDelta = new Vector2(WheelDiameter, WheelDiameter);
-        row.anchoredPosition = new Vector2(190f, 128f);
 
         if (panel.wildColorText == null)
         {
@@ -147,13 +140,10 @@ public static class ScanPanelPrefabBuilder
             panel.wildColorText = title.GetComponent<TMP_Text>();
         }
 
-        panel.wildColorText.rectTransform.sizeDelta = new Vector2(200f, 56f);
-        panel.wildColorText.rectTransform.anchoredPosition = new Vector2(-180f, 0f);
         ApplyDefaultFont(panel.wildColorText);
-        panel.wildColorText.text = "Choose\ncolour";
+        panel.wildColorText.text = "Choose colour";
         panel.wildColorText.fontSize = 18f;
         panel.wildColorText.color = Color.white;
-        panel.wildColorText.alignment = TextAlignmentOptions.MidlineLeft;
         panel.wildColorText.raycastTarget = false;
 
         // Four quarter arcs of one disc. The slices deliberately overlap: all four bounding boxes
@@ -292,12 +282,12 @@ public static class ScanPanelPrefabBuilder
         // Vertical budget on a 670 tall canvas (335 at the top, -335 at the bottom):
         //   status        327 .. 255
         //   frame / list  248 ..  68
-        //   wheel         203 ..  83   right column, replaces the list while picking
+        //   colour picker 247 ..  82   right column, replaces the list while picking
         //   headline       59 ..   7
         //   reasons         1 .. -91
         //   blocked       -97 .. -165
-        //   saved        -171 .. -255   three lines, so it needs 84 and not 52
-        //   buttons      -327 .. -263
+        //   saved        -171 .. -255   text-only fallback
+        //   buttons      -319 .. -255
         // ScanPanel.ApplyLayout reasserts every one of these at runtime, because a stale scene
         // override had once pinned the canvas at 700x660 and quietly beat the prefab.
         if (panel.frameImage != null)
@@ -323,27 +313,15 @@ public static class ScanPanelPrefabBuilder
             panel.statusText.overflowMode = TextOverflowModes.Ellipsis;
         }
 
-        if (panel.wildColorControls != null)
-        {
-            var wildRect = (RectTransform)panel.wildColorControls.transform;
-            wildRect.sizeDelta = new Vector2(WheelDiameter, WheelDiameter);
-            wildRect.anchoredPosition = new Vector2(190f, 143f);
-        }
-
-        // Once the tutor speaks, a long dump of the confirmed state is background, not the headline.
-        // It prints three lines, so the box has to clear all three or the last one lands on the buttons.
         if (panel.savedStateText != null)
         {
             panel.savedStateText.rectTransform.sizeDelta = new Vector2(660f, 84f);
             panel.savedStateText.rectTransform.anchoredPosition = new Vector2(0f, -213f);
             panel.savedStateText.overflowMode = TextOverflowModes.Ellipsis;
+            panel.savedStateText.enabled = false;
         }
 
-        if (panel.scanButton != null && panel.scanButton.transform.parent is RectTransform buttonRow)
-        {
-            buttonRow.sizeDelta = new Vector2(660f, 64f);
-            buttonRow.anchoredPosition = new Vector2(0f, 8f);
-        }
+        panel.ApplyScanControlsLayout();
 
         var tutor = panel.GetComponent<TutorPanel>();
 
@@ -363,6 +341,7 @@ public static class ScanPanelPrefabBuilder
             -45f, 92f, 20f, new Color(0.86f, 0.86f, 0.86f));
         tutor.blockedText = EnsureTutorLine(panel.transform, "TutorBlockedText",
             -131f, 68f, 18f, new Color(0.62f, 0.62f, 0.62f));
+        panel.ApplyTutorReadability(tutor);
     }
 
     static TMP_Text EnsureTutorLine(Transform parent, string name, float y, float height,

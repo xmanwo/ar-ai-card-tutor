@@ -14,11 +14,12 @@ public static class PlayReasonText
     {
         string cardName = NameOf(card);
         string topName = NameOf(top);
+        bool topIsWild = CardFaces.IsWild(ValueOf(top));
 
         switch (check.Reason)
         {
             case PlayReason.SameColor:
-                return new TextRef("why.sameColor",
+                return new TextRef(topIsWild ? "why.activeColourMatch" : "why.sameColor",
                     new TextVar("card", cardName),
                     new TextVar("top", topName),
                     new TextVar("colour", Loc.T(CardFaces.ColorKey(check.ActiveColor))));
@@ -43,6 +44,11 @@ public static class PlayReasonText
                     new TextVar("colour", Loc.T(CardFaces.ColorKey(check.ActiveColor))));
 
             case PlayReason.NoMatch:
+                if (topIsWild)
+                    return new TextRef("why.activeColourMismatch",
+                        new TextVar("card", cardName),
+                        new TextVar("colour", Loc.T(CardFaces.ColorKey(check.ActiveColor))));
+
                 return new TextRef("why.noMatch",
                     new TextVar("card", cardName),
                     new TextVar("top", topName));

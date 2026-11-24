@@ -7,16 +7,23 @@ using UnityEngine.Networking;
 /// <summary>Explicit, one-shot requests. No cloud keys or camera images enter this component.</summary>
 public class AiTutorClient : MonoBehaviour
 {
-    public enum Availability { MissingTutor, MissingSession, MissingBoth, MissingHand, MissingDiscard, MissingColor, Busy, Ready }
+    public enum Availability
+    {
+        MissingTutor, MissingSession, MissingBoth, MissingHand, MissingDiscard, MissingColor,
+        Checking, Offline, Busy, Ready
+    }
+
+    const float HealthCheckInterval = 5f;
 
     public TutorService tutor;
     public HttpCardScanSource scanSource;
     public int timeoutSeconds = 30;
     public bool Busy => activeRequest != null;
+    public bool CanAsk => State == Availability.Ready;
     public string Answer { get; private set; } = string.Empty;
     public event Action Changed;
 
-    public Availability State
+    Availability BoardState
     {
         get
         {
@@ -27,7 +34,19 @@ public class AiTutorClient : MonoBehaviour
             if (!saved.HasHand) return Availability.MissingHand;
             if (saved.Discard == null) return Availability.MissingDiscard;
             if (string.IsNullOrEmpty(saved.ActiveColor)) return Availability.MissingColor;
-            return Busy ? Availability.Busy : Availability.Ready;
+            return Availability.Ready;
+        }
+    }
+
+    public Availability State
+    {
+        get
+        {
+            var board = BoardState;
+            if (board != Availability.Ready) return board;
+            if (Busy) return Availability.Busy;
+            if (!serviceAvailable.HasValue) return Availability.Checking;
+            return serviceAvailable.Value ? Availability.Ready : Availability.Offline;
         }
     }
 
@@ -43,14 +62,24 @@ public class AiTutorClient : MonoBehaviour
                 case Availability.MissingHand: return Local("Discard saved. Confirm your hand.", "桌顶已保存，请确认手牌。");
                 case Availability.MissingDiscard: return Local("Hand saved. Confirm the discard.", "手牌已保存，请确认桌顶。");
                 case Availability.MissingColor: return Local("Choose and confirm the active colour.", "请选择并确认当前颜色。");
+                case Availability.Checking: return Local("Checking AI service…", "正在检查 AI 服务……");
+                case Availability.Offline: return Local("AI offline · Local rules active", "AI 离线 · 本地规则可用");
                 case Availability.Busy: return Local("Waiting for DeepSeek...", "正在等待 DeepSeek……");
-                default: return Local("Cards confirmed. AI is ready.", "牌面已确认，可以使用 AI。");
+                default: return retrySuggested
+                    ? Local("AI reachable · Try again", "AI 服务可连接 · 可以重试")
+                    : Local("Cards confirmed. AI is ready.", "牌面已确认，可以使用 AI。");
             }
         }
     }
 
     UnityWebRequest activeRequest;
     Coroutine pending;
+    UnityWebRequest healthRequest;
+    Coroutine pendingHealth;
+    string checkedEndpoint;
+    bool? serviceAvailable;
+    bool retrySuggested;
+    float nextHealthCheck;
     int generation;
     GameSessionState session;
     ConfirmedCard discard;
@@ -82,6 +111,7 @@ public class AiTutorClient : MonoBehaviour
         public string answer, suggested_card_id;
     }
     [Serializable] class ErrorData { public string detail; }
+    [Serializable] class HealthData { public bool configured; }
 
     void Start()
     {
@@ -94,11 +124,26 @@ public class AiTutorClient : MonoBehaviour
         if (session != null && !SnapshotMatches())
         {
             Cancel();
-            Answer = Local("Position changed. Ask AI again after confirming the cards.",
-                "牌面已变化，请确认后重新请求 AI。");
+            Answer = string.Empty;
             session = null;
             Changed?.Invoke();
         }
+
+        if (BoardState != Availability.Ready || Busy)
+            return;
+
+        string endpoint = ResolveBaseUrl();
+        if (endpoint != checkedEndpoint)
+        {
+            CancelHealthCheck();
+            checkedEndpoint = endpoint;
+            serviceAvailable = null;
+            nextHealthCheck = 0f;
+            Answer = string.Empty;
+        }
+
+        if (pendingHealth == null && Time.unscaledTime >= nextHealthCheck)
+            pendingHealth = StartCoroutine(CheckHealth(endpoint));
     }
 
     bool SnapshotMatches()
@@ -112,17 +157,51 @@ public class AiTutorClient : MonoBehaviour
     static string CurrentLanguage() => Loc.Current == Language.Zh ? "zh" : "en";
     public static string Local(string en, string zh) => Loc.Current == Language.Zh ? zh : en;
 
+    string ResolveBaseUrl()
+    {
+        string url = scanSource != null ? scanSource.ResolvedUrl : null;
+        if (string.IsNullOrWhiteSpace(url) && scanSource != null)
+            url = scanSource.Transport == ServerTransport.Lan ? scanSource.serverUrl : scanSource.usbUrl;
+        return string.IsNullOrWhiteSpace(url) ? "http://127.0.0.1:8000" : url.Trim().TrimEnd('/');
+    }
+
+    IEnumerator CheckHealth(string endpoint)
+    {
+        using (var request = UnityWebRequest.Get(endpoint + "/tutor/health"))
+        {
+            healthRequest = request;
+            request.timeout = 3;
+            yield return request.SendWebRequest();
+
+            bool configured = false;
+            if (request.result == UnityWebRequest.Result.Success)
+            {
+                try { configured = JsonUtility.FromJson<HealthData>(request.downloadHandler.text)?.configured == true; }
+                catch (ArgumentException) { }
+            }
+
+            healthRequest = null;
+            pendingHealth = null;
+            nextHealthCheck = Time.unscaledTime + HealthCheckInterval;
+            serviceAvailable = configured;
+            if (!configured)
+                Answer = string.Empty;
+            Changed?.Invoke();
+        }
+    }
+
+    void MarkUnavailable()
+    {
+        CancelHealthCheck();
+        serviceAvailable = false;
+        retrySuggested = true;
+        nextHealthCheck = Time.unscaledTime + HealthCheckInterval;
+        Answer = string.Empty;
+    }
+
     public void Ask(string mode)
     {
-        if (Busy) return;
-        if (tutor == null) tutor = FindFirstObjectByType<TutorService>();
-        if (scanSource == null) scanSource = FindFirstObjectByType<HttpCardScanSource>();
-        if (State != Availability.Ready)
-        {
-            Answer = ReadinessMessage;
-            Changed?.Invoke();
-            return;
-        }
+        if (!CanAsk || ResolveBaseUrl() != checkedEndpoint) return;
         if (mode != "explain" && mode != "hint") return;
 
         session = tutor.session;
@@ -148,12 +227,9 @@ public class AiTutorClient : MonoBehaviour
             discard = new CardData { id = discard.id, color = discard.color, value = discard.value },
             active_color = activeColor, wild_draw_four_needs_no_active_colour = drawFourRule
         };
-        string baseUrl = scanSource != null ? scanSource.ResolvedUrl : null;
-        if (string.IsNullOrWhiteSpace(baseUrl))
-            baseUrl = scanSource != null && scanSource.Transport == ServerTransport.Lan
-                ? scanSource.serverUrl : scanSource != null ? scanSource.usbUrl : "http://127.0.0.1:8000";
-        Answer = Local("Generating an explanation...", "正在生成解释……");
-        pending = StartCoroutine(Send(context, baseUrl));
+        CancelHealthCheck();
+        Answer = string.Empty;
+        pending = StartCoroutine(Send(context, checkedEndpoint));
         Changed?.Invoke();
     }
 
@@ -176,8 +252,7 @@ public class AiTutorClient : MonoBehaviour
                 string detail = string.Empty;
                 try { detail = JsonUtility.FromJson<ErrorData>(request.downloadHandler.text)?.detail; }
                 catch (Exception) { }
-                Answer = Local("AI unavailable. The rule advice on the left still applies.",
-                    "AI 暂时不可用，请参考左侧规则提示。");
+                MarkUnavailable();
                 // Only sanitized server messages are logged; no request headers or keys.
                 Debug.LogWarning($"[AI Tutor] HTTP {request.responseCode}: {detail}");
             }
@@ -191,8 +266,14 @@ public class AiTutorClient : MonoBehaviour
                 if (valid && !string.IsNullOrEmpty(response.suggested_card_id))
                     valid = context.mode == "hint" && Array.Exists(context.hand,
                         c => c.legal && c.id == response.suggested_card_id);
-                Answer = valid ? response.answer : Local("AI returned an invalid answer. Use the rule advice.",
-                    "AI 回答无效，请参考规则提示。");
+                if (valid)
+                {
+                    Answer = response.answer;
+                    retrySuggested = false;
+                    nextHealthCheck = Time.unscaledTime + HealthCheckInterval;
+                }
+                else
+                    MarkUnavailable();
             }
             Changed?.Invoke();
         }
@@ -207,5 +288,19 @@ public class AiTutorClient : MonoBehaviour
         pending = null;
     }
 
-    void OnDisable() { Cancel(); }
+    void CancelHealthCheck()
+    {
+        if (healthRequest != null) healthRequest.Abort();
+        if (pendingHealth != null) StopCoroutine(pendingHealth);
+        healthRequest = null;
+        pendingHealth = null;
+    }
+
+    void OnDisable()
+    {
+        Cancel();
+        CancelHealthCheck();
+        checkedEndpoint = null;
+        Answer = string.Empty;
+    }
 }
