@@ -87,6 +87,14 @@ public class CardScanClient : MonoBehaviour
     public float uncertainVoteShare = 0.6f;
 
     public ScanState State { get; private set; } = ScanState.Seeking;
+    public ScanTarget ActiveTarget { get; private set; } = ScanTarget.Discard;
+    public bool CanRescanCurrent => view is not ScanPanel panel || panel.CanRescanCurrent;
+    internal bool StartupDiscardPending => view is ScanPanel panel &&
+        ShouldAutoStartDiscard(panel.automaticHandScan, State, ActiveTarget, roundVersion);
+    public bool AutomaticHandRound { get; private set; }
+    public bool RetainingHandDraft => AutomaticHandRound && handStateBeforeRound == ScanState.Reviewing;
+    public bool CanFocusHand => capture != null && capture.handRoi != null &&
+        capture.handRoi.CanFocusHand(capture.cameraManager);
     public List<CardEntry> Cards { get; } = new List<CardEntry>();
 
     /// <summary>Why the last request failed. Only meaningful in <see cref="ScanState.Error"/>.</summary>
@@ -119,6 +127,8 @@ public class CardScanClient : MonoBehaviour
     int requestCount;
     int lastNewTrackRequest = -999;
     int nextTrackId = 1;
+    int roundVersion;
+    ScanState handStateBeforeRound;
 
     /// <summary>One physical card, followed across the frames of a round.</summary>
     class Track
@@ -193,8 +203,13 @@ public class CardScanClient : MonoBehaviour
         {
             case ScanState.Seeking:
             case ScanState.Failed:
-                // A failed round is not a dead end: moving the cards is a valid way out of it.
-                TickWake();
+                if (StartupDiscardPending && watcher != null && watcher.TrySample(out _))
+                {
+                    Debug.Log("[Scan] camera ready: starting the initial discard round");
+                    BeginRound();
+                }
+                else if (view is not ScanPanel)
+                    TickWake();
                 break;
 
             case ScanState.Scanning:
@@ -205,6 +220,9 @@ public class CardScanClient : MonoBehaviour
             // the user is reading (or editing) would be replaced under their hands.
         }
     }
+
+    internal static bool ShouldAutoStartDiscard(bool automatic, ScanState state, ScanTarget target, int version)
+        => automatic && state == ScanState.Seeking && target == ScanTarget.Discard && version == 0;
 
     // ------------------------------------------------------------------ L0 wake
 
@@ -246,6 +264,12 @@ public class CardScanClient : MonoBehaviour
         if (IsBusy)
             return;
 
+        if (AutomaticHandRound && !CanFocusHand)
+        {
+            CancelAutomaticHandRound();
+            return;
+        }
+
         // Camera unavailability must also end a round, even when no frame was captured.
         if (Time.unscaledTime - scanStartedAt >= maxScanSeconds || requestCount >= maxRequestsPerRound)
         {
@@ -265,7 +289,8 @@ public class CardScanClient : MonoBehaviour
         IsBusy = true;
         lastRequestAt = Time.unscaledTime;
 
-        ScanTarget target = view is ScanPanel targetPanel ? targetPanel.ActiveTarget : ScanTarget.Hand;
+        int version = roundVersion;
+        ScanTarget target = view is ScanPanel ? ActiveTarget : ScanTarget.Hand;
         if (!capture.CaptureForScan(target))
         {
             // The camera has not produced an image yet. Not a request, just wait for the next tick.
@@ -305,9 +330,19 @@ public class CardScanClient : MonoBehaviour
             IsBusy = false;
         }
 
+        if (version != roundVersion)
+            yield break;
+
+        if (AutomaticHandRound && !CanFocusHand)
+        {
+            CancelAutomaticHandRound();
+            yield break;
+        }
+
         if (!succeeded)
         {
             LastError = failure ?? "Unknown error";
+            if (RestoreHandDraft()) yield break;
             SetState(ScanState.Error);
             Render();
             yield break;
@@ -475,6 +510,7 @@ public class CardScanClient : MonoBehaviour
 
         if (frozen.Count == 0)
         {
+            if (RestoreHandDraft()) return;
             Notice = null;
             SetState(ScanState.Failed);
             Render();
@@ -547,16 +583,49 @@ public class CardScanClient : MonoBehaviour
     /// <summary>True only when a new round was accepted. Rejected requests leave the draft intact.</summary>
     public bool TryRescan()
     {
+        // The panel's Scan Discard control owns the discard workflow.
+        return CanRescanCurrent && TryRescan(ActiveTarget);
+    }
+
+    public bool TryRescan(ScanTarget target, bool automaticHand = false)
+    {
         if (State == ScanState.Scanning || IsBusy)
             return false;
 
-        if (Time.unscaledTime - lastRescanAt < rescanCooldownSeconds)
+        if (!automaticHand && Time.unscaledTime - lastRescanAt < rescanCooldownSeconds)
+            return false;
+        if (automaticHand && (target != ScanTarget.Hand || !CanFocusHand))
             return false;
 
-        lastRescanAt = Time.unscaledTime;
+        if (!automaticHand) lastRescanAt = Time.unscaledTime;
         scanEnabled = true;
-        Debug.Log("[Scan] rescan requested");
+        if (automaticHand)
+        {
+            handStateBeforeRound = ActiveTarget == ScanTarget.Hand ? State : ScanState.Seeking;
+            if (ActiveTarget != ScanTarget.Hand) { Cards.Clear(); lastFrame = null; }
+        }
+        ActiveTarget = target;
+        AutomaticHandRound = automaticHand;
+        Debug.Log($"[Scan] {target} round requested (automatic={automaticHand})");
         BeginRound();
+        return true;
+    }
+
+    public void CancelAutomaticHandRound()
+    {
+        if (!AutomaticHandRound || State != ScanState.Scanning) return;
+        roundVersion++;
+        AutomaticHandRound = false;
+        SetState(handStateBeforeRound);
+        Render();
+    }
+
+    bool RestoreHandDraft()
+    {
+        if (!AutomaticHandRound || Cards.Count == 0) return false;
+        AutomaticHandRound = false;
+        SetState(handStateBeforeRound);
+        Render();
         return true;
     }
 
@@ -579,10 +648,10 @@ public class CardScanClient : MonoBehaviour
 
     void BeginRound()
     {
+        roundVersion++;
         if (capture != null && capture.handRoi != null) capture.handRoi.ResetRound();
         // Confirmed session data is stored independently; this list is only the new draft.
-        Cards.Clear();
-        lastFrame = null;
+        if (!AutomaticHandRound) { Cards.Clear(); lastFrame = null; }
         LastCapturedFrameId = 0;
         tracks.Clear();
         activeCountHistory.Clear();
@@ -608,6 +677,7 @@ public class CardScanClient : MonoBehaviour
 
         Debug.Log($"[Scan] {State} -> {next}");
         State = next;
+        if (next != ScanState.Scanning) AutomaticHandRound = false;
     }
 
     void Render()

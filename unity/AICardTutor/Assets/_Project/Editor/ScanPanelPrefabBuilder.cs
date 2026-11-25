@@ -277,29 +277,22 @@ public static class ScanPanelPrefabBuilder
     public static void ConfigureTutorPanel(ScanPanel panel)
     {
         var rootRect = (RectTransform)panel.transform;
-        rootRect.sizeDelta = new Vector2(700f, 670f);
+        rootRect.sizeDelta = new Vector2(700f, ScanPanel.PanelHeight);
+        var offset = panel.localOffset;
+        offset.y = ScanPanel.FloatingOffsetY;
+        panel.localOffset = offset;
 
-        // Vertical budget on a 670 tall canvas (335 at the top, -335 at the bottom):
-        //   status        327 .. 255
-        //   frame / list  248 ..  68
-        //   colour picker 247 ..  82   right column, replaces the list while picking
-        //   headline       59 ..   7
-        //   reasons         1 .. -91
-        //   blocked       -97 .. -165
-        //   saved        -171 .. -255   text-only fallback
-        //   buttons      -319 .. -255
-        // ScanPanel.ApplyLayout reasserts every one of these at runtime, because a stale scene
-        // override had once pinned the canvas at 700x660 and quietly beat the prefab.
+        // ScanPanel.ApplyLayout reasserts the geometry over existing scene overrides.
         if (panel.frameImage != null)
         {
             panel.frameImage.rectTransform.sizeDelta = new Vector2(180f, 180f);
-            panel.frameImage.rectTransform.anchoredPosition = new Vector2(-240f, 158f);
+            panel.frameImage.rectTransform.anchoredPosition = new Vector2(-240f, 158f + ScanPanel.CardRowOffset);
         }
 
         if (panel.listText != null)
         {
             panel.listText.rectTransform.sizeDelta = new Vector2(280f, 180f);
-            panel.listText.rectTransform.anchoredPosition = new Vector2(190f, 158f);
+            panel.listText.rectTransform.anchoredPosition = new Vector2(190f, 158f + ScanPanel.CardRowOffset);
             // Seven cards at 28pt is exactly the height of the box; clip rather than grow.
             panel.listText.overflowMode = TextOverflowModes.Ellipsis;
         }
@@ -316,12 +309,19 @@ public static class ScanPanelPrefabBuilder
         if (panel.savedStateText != null)
         {
             panel.savedStateText.rectTransform.sizeDelta = new Vector2(660f, 84f);
-            panel.savedStateText.rectTransform.anchoredPosition = new Vector2(0f, -213f);
+            panel.savedStateText.rectTransform.anchoredPosition = new Vector2(0f, -176f);
             panel.savedStateText.overflowMode = TextOverflowModes.Ellipsis;
             panel.savedStateText.enabled = false;
         }
 
         panel.ApplyScanControlsLayout();
+        var scanProgressLabel = panel.rescanButton != null
+            ? panel.rescanButton.GetComponentInChildren<TMP_Text>() : null;
+        if (scanProgressLabel != null)
+        {
+            scanProgressLabel.text = new TextRef(panel.automaticHandScan ? "scan.waitingHand" : "scan.rescan").Resolve();
+            scanProgressLabel.fontSize = panel.automaticHandScan ? 15f : 22f;
+        }
 
         var tutor = panel.GetComponent<TutorPanel>();
 
@@ -332,15 +332,13 @@ public static class ScanPanelPrefabBuilder
         // the old value of 3 in place - and three reasons is what used to spill into the row below.
         tutor.maxReasonLines = 2;
 
-        // Each height matches the most lines that block can print: one headline, two reasons that
-        // may wrap to two lines each, and two blocked lines. EnsureTutorLine clips the overflow so
-        // text can never reach the row below.
+        // Reserve preview space for the two explanation blocks. Runtime fits their actual text.
         tutor.legalText = EnsureTutorLine(panel.transform, "TutorLegalText",
-            33f, 52f, 22f, Color.white);
+            -18f, 36f, 22f, Color.white);
         tutor.reasonText = EnsureTutorLine(panel.transform, "TutorReasonText",
-            -45f, 92f, 20f, new Color(0.86f, 0.86f, 0.86f));
+            -76f, 50f, 20f, new Color(0.86f, 0.86f, 0.86f));
         tutor.blockedText = EnsureTutorLine(panel.transform, "TutorBlockedText",
-            -131f, 68f, 18f, new Color(0.62f, 0.62f, 0.62f));
+            -132f, 50f, 20f, new Color32(209, 213, 219, 255));
         panel.ApplyTutorReadability(tutor);
     }
 

@@ -21,21 +21,22 @@ public class AiTutorPanel : MonoBehaviour
 
         var root = new GameObject("AiTutor", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         root.transform.SetParent(transform, false);
-        Place((RectTransform)root.transform, new Vector2(460f, 510f), new Vector2(594f, 70f));
+        ScanPanel.ApplyAiLayout((RectTransform)root.transform);
         var background = root.GetComponent<Image>();
-        background.color = new Color(0.045f, 0.07f, 0.10f, 0.96f);
+        ScanPanel.StyleFloatingPanel(background);
         background.raycastTarget = false;
-        heading = Text(root.transform, "Heading", tutorPanel.legalText, 28f,
-            new Vector2(420f, 40f), new Vector2(0f, 218f));
+        float top = ScanPanel.PanelHeight * .5f;
+        heading = Text(root.transform, "Heading", tutorPanel.legalText, 26f,
+            new Vector2(362f, 38f), new Vector2(0f, top - 34f));
         status = Text(root.transform, "Readiness", tutorPanel.legalText, 22f,
-            new Vector2(420f, 46f), new Vector2(0f, 171f));
+            new Vector2(362f, 62f), new Vector2(0f, top - 86f));
         answer = Text(root.transform, "Answer", tutorPanel.legalText, 28f,
-            new Vector2(420f, 294f), new Vector2(0f, -15f));
+            new Vector2(362f, 380f), new Vector2(0f, -16f));
         answer.enableAutoSizing = true;
         answer.fontSizeMin = 20f;
         answer.fontSizeMax = 26f;
-        explain = MakeButton(root.transform, "Explain", -109f, tutorPanel.legalText, out explainLabel);
-        hint = MakeButton(root.transform, "Hint", 109f, tutorPanel.legalText, out hintLabel);
+        explain = MakeButton(root.transform, "Explain", -92f, tutorPanel.legalText, out explainLabel);
+        hint = MakeButton(root.transform, "Hint", 92f, tutorPanel.legalText, out hintLabel);
         explain.onClick.AddListener(() => client.Ask("explain"));
         hint.onClick.AddListener(() => client.Ask("hint"));
         client.Changed += Render;
@@ -90,7 +91,7 @@ public class AiTutorPanel : MonoBehaviour
     {
         var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
         go.transform.SetParent(parent, false);
-        Place((RectTransform)go.transform, new Vector2(198f, 64f), new Vector2(x, -212f));
+        Place((RectTransform)go.transform, new Vector2(174f, 64f), new Vector2(x, ScanPanel.FooterCentreY));
         var image = go.GetComponent<Image>();
         var button = go.GetComponent<Button>();
         button.targetGraphic = image;
@@ -101,7 +102,7 @@ public class AiTutorPanel : MonoBehaviour
         colours.selectedColor = colours.highlightedColor;
         colours.disabledColor = new Color32(60, 67, 74, 255);
         button.colors = colours;
-        label = Text(go.transform, "Label", template, 23f, new Vector2(184f, 58f), Vector2.zero);
+        label = Text(go.transform, "Label", template, 22f, new Vector2(162f, 58f), Vector2.zero);
         label.alignment = TextAlignmentOptions.Center;
         return button;
     }

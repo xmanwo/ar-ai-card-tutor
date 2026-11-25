@@ -56,6 +56,37 @@ public class HandRoiProvider : MonoBehaviour
         lastMode = mode;
     }
 
+    public bool CanFocusHand(ARCameraManager camera)
+    {
+        if (mode == HoldingHandMode.Off || camera == null || !camera.TryGetIntrinsics(out var intrinsics) ||
+            !calibration.EnsureLoaded() || !TryGetTrackedHead(out Pose head))
+            return false;
+
+        var headDevice = InputDevices.GetDeviceAtXRNode(XRNode.CenterEye);
+        if (headDevice.TryGetFeatureValue(CommonUsages.deviceAngularVelocity, out Vector3 velocity) &&
+            velocity.sqrMagnitude > 2.25f)
+            return false;
+
+        FindHands();
+        if (hands == null || !hands.running)
+            return false;
+
+        int width = intrinsics.resolution.x;
+        int height = intrinsics.resolution.y;
+        if (width <= 0 || height <= 0)
+            return false;
+
+        return (mode != HoldingHandMode.Right && CanFocus(hands.leftHand, 0)) ||
+               (mode != HoldingHandMode.Left && CanFocus(hands.rightHand, 1));
+
+        bool CanFocus(XRHand hand, int index)
+        {
+            return BuildAnchor(hand, index, head, intrinsics, width, height, out var anchor) &&
+                (focus[index].FullFrame || HandCardFocus.Discovery(anchor.Pixel.x, anchor.Pixel.y,
+                    anchor.Span, width, height, out _));
+        }
+    }
+
     public HandCropGeometry.Crop GetCrop(ARCameraManager camera, int width, int height, ScanTarget target)
     {
         var full = new HandCropGeometry.Crop(0, 0, width, height);

@@ -18,7 +18,7 @@ static class ScanPanelPrefabAutoUpgrade
     const string PrefabPath = "Assets/_Project/Prefabs/UI/ScanPanel.prefab";
     const string SessionKey = "CardTutor.PanelUpgradeAttempted";
 
-    const float ExpectedHeight = 1000f;
+    const float ExpectedHeight = ScanPanel.PanelHeight;
 
     static ScanPanelPrefabAutoUpgrade()
     {

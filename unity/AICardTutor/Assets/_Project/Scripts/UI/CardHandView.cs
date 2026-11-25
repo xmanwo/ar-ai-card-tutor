@@ -9,10 +9,14 @@ public class CardHandView : MonoBehaviour
 {
     public bool IsAvailable { get; private set; }
     ScanPanel owner;
-    RectTransform root, handRow, discardSlot;
+    RectTransform root, handRow, discardSlot, photoRoot;
+    GameObject unoPill;
     TMP_Text handTitle, discardTitle, emptyHand;
     TMP_Text photoTitle, photoPlaceholder, cropStatus, cropModeText;
     Button cropMode;
+    TMP_Text debugLabel;
+    CanvasGroup originalPhotoVisibility;
+    bool photoDebug;
     ScanCropOverlay cropOverlay;
     RawImage focusedPhoto;
     TMP_Text originalLabel, focusedLabel, focusedPlaceholder;
@@ -43,7 +47,8 @@ public class CardHandView : MonoBehaviour
             return;
         }
         font = owner.statusText != null ? owner.statusText.font : TMP_Settings.defaultFontAsset;
-        root = NewRect("CardFaces", transform, new Vector2(700, 670), Vector2.zero);
+        root = NewRect("CardFaces", transform, new Vector2(700, ScanPanel.PanelHeight),
+            new Vector2(0f, ScanPanel.CardRowOffset));
         handRow = NewRect("HandRow", root, new Vector2(530, 150), new Vector2(65, 145));
         discardSlot = NewRect("DiscardSlot", root, new Vector2(92, 138), new Vector2(-280, 140));
         handTitle = Text(root, "HandTitle", new Vector2(370, 28), new Vector2(-15, 236), 21);
@@ -53,6 +58,17 @@ public class CardHandView : MonoBehaviour
         emptyHand.alignment = TextAlignmentOptions.Center;
         previous = PageButton("PreviousCards", "<", 260, () => { page--; Draw(); });
         next = PageButton("NextCards", ">", 310, () => { page++; Draw(); });
+        var pill = NewRect("CallUno", root, new Vector2(138f, 32f), new Vector2(252f, 145f));
+        var pillBackground = pill.gameObject.AddComponent<Image>();
+        pillBackground.raycastTarget = false;
+        ScanPanel.StyleUnoPill(pillBackground);
+        var unoLabel = Text(pill, "Label", new Vector2(132f, 30f), Vector2.zero, 18f);
+        unoLabel.alignment = TextAlignmentOptions.Center;
+        unoLabel.fontStyle = FontStyles.Bold;
+        unoLabel.color = new Color32(18, 20, 24, 255);
+        unoLabel.text = new TextRef("tutor.callUno").Resolve();
+        unoPill = pill.gameObject;
+        unoPill.SetActive(false);
         BuildPhotoPanel();
         if (owner.wildColorControls != null)
             owner.wildColorControls.transform.SetAsLastSibling();
@@ -106,7 +122,8 @@ public class CardHandView : MonoBehaviour
     {
         if (root == null) return;
         RefreshPhotoPanel();
-        bool reviewingHand = lastTarget == ScanTarget.Hand && lastState == ScanState.Reviewing;
+        bool reviewingHand = lastTarget == ScanTarget.Hand && (lastState == ScanState.Reviewing ||
+            (owner.client != null && owner.client.RetainingHandDraft));
         bool pickingWildColour = owner.wildColorControls != null && owner.wildColorControls.activeSelf;
         // Reserve the right edge for the full-size wheel and its label while picking.
         const float handLeft = -200f;
@@ -119,6 +136,9 @@ public class CardHandView : MonoBehaviour
         ((RectTransform)previous.transform).anchoredPosition = new Vector2(pickingWildColour ? 95f : 260f, 236f);
         ((RectTransform)next.transform).anchoredPosition = new Vector2(pickingWildColour ? 145f : 310f, 236f);
         var cards = HandFaces(reviewingHand);
+        var advice = owner.tutor != null ? owner.tutor.Current : null;
+        unoPill.SetActive(lastState != ScanState.Scanning && lastState != ScanState.Reviewing &&
+            advice != null && advice.UnoAlert);
         var stamp = new StringBuilder(reviewingHand ? "review:" : "saved:");
         foreach (var card in cards) stamp.Append(card.Id).Append('/').Append(card.Color).Append('/').Append(card.Value).Append(';');
         string current = stamp.ToString();
@@ -182,49 +202,83 @@ public class CardHandView : MonoBehaviour
     void BuildPhotoPanel()
     {
         if (owner.frameImage == null) return;
-        // One column under the Rescan HUD: original context above, actual recognition input below.
-        var photoRoot = NewRect("CapturedPhotoPanel", transform, new Vector2(400, 520), new Vector2(-560, -60));
+        photoRoot = NewRect("CapturedPhotoPanel", transform, Vector2.zero, Vector2.zero);
         var background = photoRoot.gameObject.AddComponent<Image>();
-        background.color = new Color(.045f, .07f, .10f, .96f);
+        ScanPanel.StyleFloatingPanel(background);
         background.raycastTarget = false;
-        photoTitle = Text(photoRoot, "PhotoTitle", new Vector2(190, 34), new Vector2(-75, 234), 21);
-        originalLabel = Text(photoRoot, "OriginalLabel", new Vector2(350, 22), new Vector2(0, 200), 16);
+        photoTitle = Text(photoRoot, "PhotoTitle", Vector2.zero, Vector2.zero, 21);
+        var debug = PhotoButton("PhotoDebug", new Vector2(96f, 30f), new Color32(69, 75, 84, 255));
+        debugLabel = Text(debug.transform, "Label", new Vector2(92f, 28f), Vector2.zero, 16f);
+        debugLabel.alignment = TextAlignmentOptions.Center;
+        debug.onClick.AddListener(() => {
+            photoDebug = !photoDebug;
+            ApplyPhotoLayout();
+            RefreshPhotoPanel();
+        });
+        originalLabel = Text(photoRoot, "OriginalLabel", new Vector2(165, 22), new Vector2(-60, 169), 16);
         originalLabel.alignment = TextAlignmentOptions.Center;
         originalLabel.text = Local("Original photo", "原始照片");
-        focusedLabel = Text(photoRoot, "FocusedLabel", new Vector2(350, 24), new Vector2(0, 20), 18);
+        focusedLabel = Text(photoRoot, "FocusedLabel", Vector2.zero, Vector2.zero, 18);
         focusedLabel.alignment = TextAlignmentOptions.Center;
-        var focusedRect = NewRect("RecognitionPhoto", photoRoot, new Vector2(350, 210), new Vector2(0, -100));
+        var focusedRect = NewRect("RecognitionPhoto", photoRoot, Vector2.zero, Vector2.zero);
         focusedPhoto = focusedRect.gameObject.AddComponent<RawImage>();
         focusedPhoto.raycastTarget = false;
         focusedPhoto.enabled = false;
-        focusedPlaceholder = Text(photoRoot, "FocusPlaceholder", new Vector2(340, 205), new Vector2(0, -100), 20);
+        focusedPlaceholder = Text(photoRoot, "FocusPlaceholder", new Vector2(340, 140), new Vector2(0, -77), 20);
         focusedPlaceholder.alignment = TextAlignmentOptions.Center;
-        cropStatus = Text(photoRoot, "CropStatus", new Vector2(370, 44), new Vector2(0, -235), 15);
+        cropStatus = Text(photoRoot, "CropStatus", new Vector2(370, 44), new Vector2(0, -190), 15);
         cropStatus.alignment = TextAlignmentOptions.Center;
-        cropStatus.overflowMode = TextOverflowModes.Ellipsis;
-        var modeRect = NewRect("HoldingHandMode", photoRoot, new Vector2(140, 28), new Vector2(100, 234));
-        var modeImage = modeRect.gameObject.AddComponent<Image>();
-        modeImage.color = new Color(.12f, .28f, .40f, 1);
-        cropMode = modeRect.gameObject.AddComponent<Button>();
-        cropMode.targetGraphic = modeImage;
+        cropMode = PhotoButton("HoldingHandMode", new Vector2(140, 28), new Color(.12f, .28f, .40f, 1));
+        ((RectTransform)cropMode.transform).anchoredPosition = new Vector2(112, 169);
         cropMode.onClick.AddListener(() => {
             var provider = owner.client != null && owner.client.capture != null ? owner.client.capture.handRoi : null;
             if (provider == null) return;
             provider.CycleMode();
             RefreshPhotoPanel();
         });
-        cropModeText = Text(modeRect, "Mode", new Vector2(136, 26), Vector2.zero, 17);
+        cropModeText = Text(cropMode.transform, "Mode", new Vector2(136, 26), Vector2.zero, 17);
         cropModeText.alignment = TextAlignmentOptions.Center;
-        photoPlaceholder = Text(photoRoot, "PhotoPlaceholder", new Vector2(340, 140), new Vector2(0, 115), 20);
+        photoPlaceholder = Text(photoRoot, "PhotoPlaceholder", Vector2.zero, Vector2.zero, 20);
         photoPlaceholder.alignment = TextAlignmentOptions.Center;
         var rect = owner.frameImage.rectTransform;
         rect.SetParent(photoRoot, false);
         rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(.5f, .5f);
-        rect.anchoredPosition = new Vector2(0, 115);
         owner.frameImage.raycastTarget = false;
         owner.frameImage.enabled = owner.frameImage.texture != null;
+        originalPhotoVisibility = rect.GetComponent<CanvasGroup>();
+        if (originalPhotoVisibility == null) originalPhotoVisibility = rect.gameObject.AddComponent<CanvasGroup>();
         cropOverlay = owner.frameImage.GetComponent<ScanCropOverlay>();
         if (cropOverlay == null) cropOverlay = owner.frameImage.gameObject.AddComponent<ScanCropOverlay>();
+        ApplyPhotoLayout();
+    }
+
+    Button PhotoButton(string name, Vector2 size, Color colour)
+    {
+        var rect = NewRect(name, photoRoot, size, Vector2.zero);
+        var image = rect.gameObject.AddComponent<Image>();
+        image.color = colour;
+        var button = rect.gameObject.AddComponent<Button>();
+        button.targetGraphic = image;
+        return button;
+    }
+
+    void ApplyPhotoLayout()
+    {
+        ScanPanel.ApplyPhotoLayout(photoRoot, photoDebug);
+        float halfWidth = photoRoot.sizeDelta.x * .5f;
+        float halfHeight = photoRoot.sizeDelta.y * .5f;
+        photoTitle.rectTransform.sizeDelta = new Vector2(photoRoot.sizeDelta.x - 130f, 32f);
+        photoTitle.rectTransform.anchoredPosition = new Vector2(-50f, halfHeight - 22f);
+        ((RectTransform)debugLabel.transform.parent).anchoredPosition = new Vector2(halfWidth - 62f, halfHeight - 22f);
+        owner.frameImage.rectTransform.anchoredPosition = new Vector2(0f, photoDebug ? 94f : -3f);
+        photoPlaceholder.rectTransform.anchoredPosition = owner.frameImage.rectTransform.anchoredPosition;
+        photoPlaceholder.rectTransform.sizeDelta = new Vector2(268f, 124f);
+        focusedPhoto.rectTransform.anchoredPosition = new Vector2(0f, photoDebug ? -77f : -3f);
+        focusedLabel.rectTransform.anchoredPosition = new Vector2(0f, photoDebug ? 17f : -84f);
+        focusedLabel.rectTransform.sizeDelta = new Vector2(photoRoot.sizeDelta.x - 24f, 26f);
+        originalLabel.gameObject.SetActive(photoDebug);
+        cropStatus.gameObject.SetActive(photoDebug);
+        cropMode.gameObject.SetActive(photoDebug);
     }
 
     public void RefreshPhotoPanel()
@@ -232,46 +286,33 @@ public class CardHandView : MonoBehaviour
         if (photoTitle == null || owner.frameImage == null) return;
         bool visible = owner.frameImage.enabled && owner.frameImage.texture != null;
         string pile = lastTarget == ScanTarget.Hand ? Local("Hand", "手牌") : Local("Discard", "桌顶");
-        photoTitle.text = pile + (lastState == ScanState.Scanning ? Local(" · Live", " · 实时") : Local(" · Photo", " · 照片"));
         var capture = owner.client != null ? owner.client.capture : null;
         bool focused = visible && lastTarget == ScanTarget.Hand && capture != null &&
             capture.LastScanCropped && capture.LastRecognitionTexture != null &&
             owner.frameImage.texture == capture.LastTexture;
-        if (focusedPhoto != null)
-        {
-            focusedPhoto.enabled = focused;
-            focusedPhoto.texture = focused ? capture.LastRecognitionTexture : null;
-            if (focused) FitPhoto(focusedPhoto, 350, 210);
-        }
-        if (focusedLabel != null)
-        {
-            focusedLabel.text = lastTarget == ScanTarget.Discard ? Local("Full-frame recognition", "全图识别") :
-                focused ? Local("Hand crop · Recognition input", "手牌裁剪 · 实际识别区域") : Local("Hand focus · Waiting", "手牌放大 · 等待定位");
-            focusedLabel.color = focused ? ScanCropOverlay.Focused : ScanCropOverlay.FullFrame;
-        }
-        if (focusedPlaceholder != null)
-        {
-            focusedPlaceholder.gameObject.SetActive(!focused);
-            focusedPlaceholder.text = lastTarget == ScanTarget.Discard
-                ? Local("Discard scanning uses the original photo.", "桌顶扫描使用原始照片。")
-                : visible ? Local("No focused crop in this frame.\nRecognition used the original photo.", "本帧尚未裁剪。\n识别使用上方原始照片。")
-                : Local("The focused hand image appears here when a crop is available.", "定位到手牌后，在这里显示放大识别图。");
-        }
-        if (cropModeText != null)
-            cropModeText.text = capture != null && capture.handRoi != null ? capture.handRoi.ModeLabel : "Hand: Auto";
-        if (cropMode != null)
-            cropMode.interactable = lastState != ScanState.Scanning && capture != null && capture.handRoi != null;
-        if (cropStatus != null)
-        {
-            cropStatus.text = visible && capture != null ? capture.LastCropNote : Local("Green box = recognised area", "绿色框为识别区域");
-            cropStatus.color = capture != null && capture.LastScanCropped ? ScanCropOverlay.Focused : ScanCropOverlay.FullFrame;
-        }
-        if (cropOverlay != null) cropOverlay.Show(capture, owner.frameImage);
+        photoTitle.text = focused && !photoDebug ? Local("Hand crop", "手牌裁剪") : pile + Local(" · Photo", " · 照片");
+        debugLabel.text = photoDebug ? Local("Debug on", "调试开启") : Local("Debug", "调试");
+        originalPhotoVisibility.alpha = photoDebug || !focused ? 1f : 0f;
+        focusedPhoto.enabled = focused;
+        focusedPhoto.texture = focused ? capture.LastRecognitionTexture : null;
+        if (focused) FitPhoto(focusedPhoto, photoDebug ? 350 : 272, photoDebug ? 154 : 128);
+        focusedLabel.text = focused ? (photoDebug ? Local("Recognition crop", "识别裁剪") :
+            capture.LastCropNote.Split('\n')[0]) : visible ? Local("Full frame", "全图") : Local("Waiting for a scan", "等待扫描");
+        focusedLabel.color = focused ? ScanCropOverlay.Focused : new Color32(209, 213, 219, 255);
+        focusedPlaceholder.gameObject.SetActive(photoDebug && !focused);
+        focusedPlaceholder.text = lastTarget == ScanTarget.Discard
+            ? Local("Discard uses the original photo.", "桌顶扫描使用原始照片。")
+            : Local("No crop available.", "暂无裁剪图。");
+        cropModeText.text = capture != null && capture.handRoi != null ? capture.handRoi.ModeLabel : "Hand: Auto";
+        cropMode.interactable = lastState != ScanState.Scanning && capture != null && capture.handRoi != null;
+        cropStatus.text = visible && capture != null ? capture.LastCropNote : string.Empty;
+        cropStatus.color = focused ? ScanCropOverlay.Focused : ScanCropOverlay.FullFrame;
+        cropOverlay.Show(capture, owner.frameImage);
         photoPlaceholder.gameObject.SetActive(!visible);
         photoPlaceholder.text = lastState == ScanState.Scanning
             ? Local("Recognising...", "正在识别……")
-            : Local("The captured photo appears here after a scan.", "扫描结束后在这里显示识别照片。");
-        if (visible) FitPhoto(owner.frameImage, 350, 140);
+            : Local("Photo preview", "照片预览");
+        if (visible) FitPhoto(owner.frameImage, photoDebug ? 350 : 272, 128);
     }
 
     static void FitPhoto(RawImage image, float width, float height)

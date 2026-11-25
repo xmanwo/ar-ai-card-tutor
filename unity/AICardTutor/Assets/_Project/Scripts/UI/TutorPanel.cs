@@ -10,7 +10,7 @@ using UnityEngine;
 /// Three lines, each optional:
 ///   legalText   - the headline, e.g. "Can play (2): Blue 7, Red 3"
 ///   reasonText  - one sentence per playable card
-///   blockedText - why the remaining cards cannot be played, dimmed
+///   blockedText - why the remaining cards cannot be played
 ///
 /// P0 has no card selection, so reasonText lists every playable card rather than the reason for a
 /// single highlighted one. When selection arrives, pass the index in and render one line.
@@ -29,9 +29,11 @@ public class TutorPanel : MonoBehaviour
     public int maxReasonLines = 2;
 
     readonly StringBuilder builder = new StringBuilder(256);
+    ScanPanel scanPanel;
 
     void Awake()
     {
+        scanPanel = GetComponent<ScanPanel>();
         if (tutor == null)
             tutor = FindFirstObjectByType<TutorService>();
 
@@ -94,6 +96,8 @@ public class TutorPanel : MonoBehaviour
             blockedText.text = advice.Ready
                 ? Join(advice.BlockedLines, TutorAdvice.MaxBlockedLines)
                 : string.Empty;
+
+        if (scanPanel != null) scanPanel.LayoutRuleLines(this);
     }
 
     string Join(IReadOnlyList<TextRef> lines, int max)
