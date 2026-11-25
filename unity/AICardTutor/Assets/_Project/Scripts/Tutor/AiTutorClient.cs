@@ -104,6 +104,7 @@ public class AiTutorClient : MonoBehaviour
         public CheckedCardData[] hand;
         public CardData discard;
         public bool wild_draw_four_needs_no_active_colour;
+        public bool uno_alert;
     }
     [Serializable] public class ResponseData
     {
@@ -204,6 +205,8 @@ public class AiTutorClient : MonoBehaviour
         if (!CanAsk || ResolveBaseUrl() != checkedEndpoint) return;
         if (mode != "explain" && mode != "hint") return;
 
+        var advice = tutor.Current;
+        if (advice == null || !advice.Ready || advice.Verdicts.Count != tutor.session.Hand.Count) return;
         session = tutor.session;
         discard = session.Discard;
         hand = session.Hand;
@@ -211,12 +214,11 @@ public class AiTutorClient : MonoBehaviour
         drawFourRule = RuleFlag();
         language = CurrentLanguage();
         int id = ++generation;
-        var rules = new StandardUnoRules(tutor.ruleSet);
         var cards = new CheckedCardData[session.Hand.Count];
         for (int i = 0; i < cards.Length; i++)
         {
             ConfirmedCard card = session.Hand[i];
-            PlayCheck check = rules.Check(card, session.Hand, discard, activeColor);
+            PlayCheck check = advice.Verdicts[i];
             cards[i] = new CheckedCardData {
                 id = card.id, color = card.color, value = card.value,
                 legal = check.Legal, reason = check.Reason.ToString()
@@ -225,7 +227,8 @@ public class AiTutorClient : MonoBehaviour
         var context = new RequestData {
             snapshot_id = id, language = language, mode = mode, hand = cards,
             discard = new CardData { id = discard.id, color = discard.color, value = discard.value },
-            active_color = activeColor, wild_draw_four_needs_no_active_colour = drawFourRule
+            active_color = activeColor, wild_draw_four_needs_no_active_colour = drawFourRule,
+            uno_alert = advice.UnoAlert
         };
         CancelHealthCheck();
         Answer = string.Empty;

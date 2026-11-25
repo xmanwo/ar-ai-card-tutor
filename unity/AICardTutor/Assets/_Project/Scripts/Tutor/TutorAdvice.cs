@@ -24,6 +24,8 @@ public sealed class TutorAdvice
 
     /// <summary>Cards that can be played, in hand order.</summary>
     public readonly IReadOnlyList<ConfirmedCard> Legal;
+    public readonly IReadOnlyList<PlayCheck> Verdicts;
+    public readonly bool UnoAlert;
 
     /// <summary>One sentence per legal card, same order as <see cref="Legal"/>.</summary>
     public readonly IReadOnlyList<TextRef> LegalLines;
@@ -36,13 +38,15 @@ public sealed class TutorAdvice
 
     public TutorAdvice(bool ready, IReadOnlyList<ConfirmedCard> legal,
                        IReadOnlyList<TextRef> legalLines, IReadOnlyList<TextRef> blockedLines,
-                       TextRef summary)
+                       TextRef summary, IReadOnlyList<PlayCheck> verdicts = null, bool unoAlert = false)
     {
         Ready = ready;
         Legal = legal ?? NoCards;
         LegalLines = legalLines ?? NoLines;
         BlockedLines = blockedLines ?? NoLines;
         Summary = summary;
+        Verdicts = verdicts ?? Array.Empty<PlayCheck>();
+        UnoAlert = unoAlert;
     }
 
     /// <summary>

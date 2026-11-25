@@ -79,6 +79,7 @@ public class HandRescanHud : MonoBehaviour
     float dwell;
     Button[] panelButtons = new Button[0];
     Button hoveredButton;
+    HandScanProgress hoveredHandProgress;
     bool firedForHover;
     bool hasSmoothed;
     Vector3 smoothedOrigin;
@@ -127,6 +128,7 @@ public class HandRescanHud : MonoBehaviour
 
     void OnDisable()
     {
+        SetHandScanHover(null);
         hoveredButton = null;
         firedForHover = false;
         dwell = 0f;
@@ -374,6 +376,7 @@ public class HandRescanHud : MonoBehaviour
 
         if (!TryGetAimRay(out Vector3 origin, out Vector3 direction))
         {
+            SetHandScanHover(null);
             ShowAim(false);
             // Lost tracking cancels progress, but does not re-arm a button already clicked.
             dwell = 0f;
@@ -393,7 +396,10 @@ public class HandRescanHud : MonoBehaviour
             firedForHover = false;
         }
 
-        if (target == null || !target.IsInteractable() || firedForHover)
+        var progress = scanPanel != null && scanPanel.automaticHandScan && target != null
+            ? target.GetComponent<HandScanProgress>() : null;
+        SetHandScanHover(progress);
+        if (target == null || progress != null || !target.IsInteractable() || firedForHover)
             dwell = 0f;
         else
             dwell += Mathf.Max(0f, deltaTime);
@@ -403,12 +409,20 @@ public class HandRescanHud : MonoBehaviour
             Fire();
     }
 
+    void SetHandScanHover(HandScanProgress progress)
+    {
+        if (progress == hoveredHandProgress) return;
+        if (hoveredHandProgress != null) hoveredHandProgress.SetHandHover(false);
+        hoveredHandProgress = progress;
+        if (progress != null) progress.SetHandHover(true);
+    }
+
     void UpdateButtonAvailability()
     {
         if (button == null || client == null)
             return;
 
-        bool blocked = client.State == ScanState.Scanning;
+        bool blocked = client.State == ScanState.Scanning || !client.CanRescanCurrent;
         if (button.interactable == blocked)
             button.interactable = !blocked;
     }

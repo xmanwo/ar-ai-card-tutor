@@ -78,33 +78,30 @@ public class TutorService : MonoBehaviour
         }
 
         legalBuffer.Clear();
-        rules.CollectLegal(session.Hand, session.Discard, session.ActiveColor, legalBuffer);
-
         legalLines.Clear();
-        for (int i = 0; i < legalBuffer.Count; i++)
-        {
-            PlayCheck check = rules.Check(legalBuffer[i], session.Hand,
-                                          session.Discard, session.ActiveColor);
-            legalLines.Add(PlayReasonText.Describe(check, legalBuffer[i], session.Discard));
-        }
-
-        // Only the first few failures are worth showing. Listing every dead card buries the point.
         blockedLines.Clear();
-        for (int i = 0; i < session.Hand.Count && blockedLines.Count < TutorAdvice.MaxBlockedLines; i++)
+        var verdicts = new PlayCheck[session.Hand.Count];
+        for (int i = 0; i < verdicts.Length; i++)
         {
             ConfirmedCard card = session.Hand[i];
             PlayCheck check = rules.Check(card, session.Hand, session.Discard, session.ActiveColor);
-
-            if (!check.Legal)
+            verdicts[i] = check;
+            if (check.Legal)
+            {
+                legalBuffer.Add(card);
+                legalLines.Add(PlayReasonText.Describe(check, card, session.Discard));
+            }
+            else if (blockedLines.Count < TutorAdvice.MaxBlockedLines)
                 blockedLines.Add(PlayReasonText.Describe(check, card, session.Discard));
         }
 
+        bool unoAlert = (ruleSet == null || ruleSet.mustCallUno) && verdicts.Length == 2 && legalBuffer.Count > 0;
         Publish(new TutorAdvice(
             true,
             legalBuffer.ToArray(),
             legalLines.ToArray(),
             blockedLines.ToArray(),
-            BuildSummary()));
+            BuildSummary(), verdicts, unoAlert));
     }
 
     /// <summary>Builds the headline from the cards already collected in <see cref="legalBuffer"/>.</summary>

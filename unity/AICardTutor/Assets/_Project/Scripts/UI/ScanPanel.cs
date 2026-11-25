@@ -28,7 +28,7 @@ public class ScanPanel : MonoBehaviour, IScanView
     /// Which pile the next scan targets. A game always starts by reading the discard pile, because
     /// the hand can only be judged against a known top card, so that is the default.
     /// </summary>
-    public ScanTarget ActiveTarget { get; private set; } = ScanTarget.Discard;
+    public ScanTarget ActiveTarget => client != null ? client.ActiveTarget : ScanTarget.Discard;
     string TargetName => ActiveTarget == ScanTarget.Hand ? "Hand" : "Discard";
 
     [Header("Wild colour")]
@@ -49,6 +49,18 @@ public class ScanPanel : MonoBehaviour, IScanView
     public Button rescanButton;
     public Button confirmButton;
 
+    [Header("Automatic Hand Scan")]
+    public bool automaticHandScan = true;
+    [Min(.1f)] public float handScanInterval = 4.5f;
+    HandScanProgress handProgress;
+    float handRemaining;
+    int handClockResetFrame = -1;
+    bool handLocked, discardPending, discardQueued, handFocused;
+
+    internal bool HandScanCanRun => automaticHandScan && !discardPending && session != null && session.Discard != null;
+    internal bool CanHoldHandScan => HandScanCanRun && (handFocused || handLocked);
+    internal bool CanRescanCurrent => !automaticHandScan || (!discardPending && ActiveTarget == ScanTarget.Hand);
+
     [Header("Placement")]
     [Tooltip("Reparent to the head camera on start so the panel always sits in view, " +
              "wherever it was dropped in the hierarchy.")]
@@ -56,9 +68,9 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     [Tooltip("Local offset from the camera, in metres. X right, Y up, Z forward. " +
              "Kept nearer than the camera preview quad (z=1.0) so the two can never fight for depth.")]
-    public Vector3 localOffset = new Vector3(0f, -0.26f, 0.85f);
+    public Vector3 localOffset = new Vector3(0f, FloatingOffsetY, 0.85f);
 
-    [Tooltip("Canvas scale. 0.0007 makes the 700x1000 canvas 0.49m x 0.70m.")]
+    [Tooltip("World-space canvas scale, in metres per UI unit.")]
     public float panelScale = 0.0007f;
 
     [Tooltip("Draw the panel after other world-space canvases. Belt and braces against " +
@@ -99,10 +111,16 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (savedStateText != null) savedStateText.raycastTarget = false;
 
         ApplyLayout();
+        if (rescanButton != null)
+        {
+            handProgress = rescanButton.gameObject.AddComponent<HandScanProgress>();
+            handProgress.Initialize(this);
+        }
 
         cardFaces = GetComponent<CardHandView>();
         if (cardFaces == null) cardFaces = gameObject.AddComponent<CardHandView>();
         cardFaces.Initialize(this);
+        LayoutRuleLines(GetComponent<TutorPanel>());
 
         if (scanButton != null)
             scanButton.onClick.AddListener(OnScan);
@@ -118,7 +136,14 @@ public class ScanPanel : MonoBehaviour, IScanView
     }
 
     /// <summary>Height of the panel canvas in UI units. Every row below was laid out against it.</summary>
-    public const float PanelHeight = 670f;
+    public const float PanelHeight = 600f;
+    public const float FloatingOffsetY = -0.145f;
+    public const float CardRowOffset = (PanelHeight - 670f) * .5f;
+    const float FooterPadding = 16f;
+    const float FooterHeight = 64f;
+    const float SavedStateY = -176f;
+    static readonly Color32 PanelTint = new Color32(12, 16, 22, 214);
+    static Sprite floatingPanelSprite, unoPillSprite;
 
     /// <summary>
     /// Lays the panel out from code, top row first.
@@ -131,22 +156,9 @@ public class ScanPanel : MonoBehaviour, IScanView
     {
         var rect = (RectTransform)transform;
 
-        if (!Mathf.Approximately(rect.sizeDelta.y, PanelHeight))
-            rect.sizeDelta = new Vector2(rect.sizeDelta.x, PanelHeight);
-
-        // Sit a little higher than the old 0.26 m drop: the bottom rows were below the eye line.
-        if (Mathf.Approximately(localOffset.y, -0.26f))
-            localOffset.y = -0.20f;
-
-        // Vertical budget on a 670 tall canvas (335 at the top, -335 at the bottom):
-        //   status        327 .. 255
-        //   frame / list  248 ..  68
-        //   colour picker 247 ..  82   right column, replaces the list while picking
-        //   headline       59 ..   7
-        //   reasons         1 .. -91
-        //   blocked       -97 .. -165
-        //   saved        -171 .. -255   text-only fallback
-        //   buttons      -319 .. -255
+        rect.sizeDelta = new Vector2(rect.sizeDelta.x, PanelHeight);
+        if (Mathf.Approximately(localOffset.y, -0.26f) || Mathf.Approximately(localOffset.y, -0.20f))
+            localOffset.y = FloatingOffsetY;
         if (statusText != null)
         {
             statusText.rectTransform.sizeDelta = new Vector2(-40f, 72f);
@@ -156,27 +168,21 @@ public class ScanPanel : MonoBehaviour, IScanView
         }
 
         // Frame hugs the left edge, card list hugs the right edge, so the middle stays free.
-        Place(frameImage != null ? frameImage.rectTransform : null, 180f, 180f, -240f, 158f);
-        Place(listText != null ? listText.rectTransform : null, 280f, 180f, 190f, 158f);
+        Place(frameImage != null ? frameImage.rectTransform : null, 180f, 180f, -240f, 158f + CardRowOffset);
+        Place(listText != null ? listText.rectTransform : null, 280f, 180f, 190f, 158f + CardRowOffset);
 
         // Three lines at 22pt: the box has to be tall enough for all of them, otherwise the last
         // one ("Active colour") runs down into the button row.
         if (savedStateText != null)
             savedStateText.overflowMode = TextOverflowModes.Ellipsis;
 
-        Place(savedStateText != null ? savedStateText.rectTransform : null, 660f, 84f, 0f, -213f);
+        Place(savedStateText != null ? savedStateText.rectTransform : null, 660f, 84f, 0f, SavedStateY);
 
         var tutorPanel = GetComponent<TutorPanel>();
 
-        if (tutorPanel != null)
-        {
-            Place(tutorPanel.reasonText != null ? tutorPanel.reasonText.rectTransform : null,
-                660f, 92f, 0f, -45f);
-            Place(tutorPanel.blockedText != null ? tutorPanel.blockedText.rectTransform : null,
-                660f, 68f, 0f, -131f);
-        }
-
         ApplyTutorReadability(tutorPanel);
+        var background = transform.Find("Background")?.GetComponent<Image>();
+        if (background != null) StyleFloatingPanel(background);
         ApplyScanControlsLayout();
 
         // One line in logcat makes a wrong canvas size obvious without guessing from a screenshot.
@@ -193,23 +199,118 @@ public class ScanPanel : MonoBehaviour, IScanView
     {
         var background = transform.Find("Background")?.GetComponent<Image>();
         if (background != null)
-            background.color = new Color(0f, 0f, 0f, 0.92f);
+            background.color = PanelTint;
 
         if (tutorPanel == null)
             return;
 
         // The Wild colour chip sits to the left of the headline.
         Place(tutorPanel.legalText != null ? tutorPanel.legalText.rectTransform : null,
-            540f, 52f, 60f, 33f);
+            540f, 36f, 60f, 17f + CardRowOffset);
+        if (tutorPanel.reasonText != null)
+        {
+            tutorPanel.reasonText.fontSize = 20f;
+            tutorPanel.reasonText.overflowMode = TextOverflowModes.Ellipsis;
+        }
         if (tutorPanel.blockedText != null)
+        {
+            tutorPanel.blockedText.fontSize = 20f;
+            tutorPanel.blockedText.overflowMode = TextOverflowModes.Ellipsis;
             tutorPanel.blockedText.color = new Color32(209, 213, 219, 255);
+        }
+        if (!Application.isPlaying)
+        {
+            Place(tutorPanel.reasonText?.rectTransform, 660f, 50f, 0f, -76f);
+            Place(tutorPanel.blockedText?.rectTransform, 660f, 50f, 0f, -132f);
+        }
+    }
+
+    internal void LayoutRuleLines(TutorPanel panel)
+    {
+        if (panel == null) return;
+        const float top = -42f;
+        float bottom = cardFaces != null && cardFaces.IsAvailable ?
+            -PanelHeight * .5f + FooterPadding + FooterHeight + 8f :
+            SavedStateY + 42f + 6f;
+        float reason = RuleTextHeight(panel.reasonText);
+        float blocked = RuleTextHeight(panel.blockedText);
+        float gap = reason > 0f && blocked > 0f ? 7f : 0f;
+        float available = top - bottom - gap;
+        float reasonHeight = Mathf.Min(reason, available - Mathf.Min(blocked, available * .5f));
+        float blockedHeight = Mathf.Min(blocked, available - reasonHeight);
+        float y = top - (available - reasonHeight - blockedHeight) * .60f;
+        Place(panel.reasonText?.rectTransform, 660f, reasonHeight, 0f, y - reasonHeight * .5f);
+        y -= reasonHeight + gap;
+        Place(panel.blockedText?.rectTransform, 660f, blockedHeight, 0f, y - blockedHeight * .5f);
+    }
+
+    static float RuleTextHeight(TMP_Text line) => line == null || string.IsNullOrEmpty(line.text)
+        ? 0f : Mathf.Ceil(line.GetPreferredValues(line.text, 660f, 0f).y) + 3f;
+
+    internal static void ApplyPhotoLayout(RectTransform rect, bool debug)
+    {
+        float width = debug ? 400f : 310f;
+        float height = debug ? 450f : 212f;
+        Place(rect, width, height, -368f - width * .5f, 202f + CardRowOffset - height * .5f);
+    }
+
+    internal static void ApplyAiLayout(RectTransform rect)
+    {
+        Place(rect, 394f, PanelHeight, 565f, 0f);
+    }
+
+    internal static float FooterCentreY => -PanelHeight * .5f + FooterPadding + FooterHeight * .5f;
+
+    internal static void StyleFloatingPanel(Image image)
+    {
+        if (floatingPanelSprite == null)
+            floatingPanelSprite = RoundedSprite(42, 16f, PanelTint, new Color32(182, 194, 208, 178));
+        image.sprite = floatingPanelSprite;
+        image.type = Image.Type.Sliced;
+        image.color = Color.white;
+    }
+
+    internal static void StyleUnoPill(Image image)
+    {
+        var yellow = new Color32(255, 217, 64, 255);
+        if (unoPillSprite == null)
+            unoPillSprite = RoundedSprite(34, 15f, yellow, yellow);
+        image.sprite = unoPillSprite;
+        image.type = Image.Type.Sliced;
+    }
+
+    // Keep the corner radius and outline uniform when the panels stretch to different sizes.
+    static Sprite RoundedSprite(int size, float radius, Color32 fill, Color32 stroke)
+    {
+        var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            wrapMode = TextureWrapMode.Clamp,
+            filterMode = FilterMode.Bilinear
+        };
+        var pixels = new Color32[size * size];
+        float half = size * .5f;
+        for (int y = 0; y < size; y++)
+        for (int x = 0; x < size; x++)
+        {
+            var corner = new Vector2(Mathf.Abs(x + .5f - half), Mathf.Abs(y + .5f - half));
+            corner -= Vector2.one * (half - radius);
+            float distance = Vector2.Max(corner, Vector2.zero).magnitude +
+                Mathf.Min(Mathf.Max(corner.x, corner.y), 0f) - radius;
+            Color color = Color.Lerp(fill, stroke, Mathf.Clamp01(distance + 1.5f));
+            color.a *= Mathf.Clamp01(.5f - distance);
+            pixels[y * size + x] = color;
+        }
+        texture.SetPixels32(pixels);
+        texture.Apply(false, true);
+        return Sprite.Create(texture, new Rect(0, 0, size, size), Vector2.one * .5f, 100f,
+            0, SpriteMeshType.FullRect, Vector4.one * (radius + 1f));
     }
 
     /// <summary>Shares the control geometry and colours with the prefab preview.</summary>
     public void ApplyScanControlsLayout()
     {
         if (wildColorControls != null)
-            Place((RectTransform)wildColorControls.transform, 120f, 120f, 252f, 142f);
+            Place((RectTransform)wildColorControls.transform, 120f, 120f, 252f, 142f + CardRowOffset);
 
         if (wildColorText != null)
         {
@@ -221,7 +322,7 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (scanButton != null && scanButton.transform.parent is RectTransform row)
         {
             row.anchorMin = row.anchorMax = row.pivot = new Vector2(0.5f, 0f);
-            Place(row, 660f, 64f, 0f, 16f);
+            Place(row, 660f, FooterHeight, 0f, FooterPadding);
         }
 
         var scanBlue = new Color32(61, 112, 217, 255);
@@ -326,33 +427,50 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     void OnScan()
     {
-        StartTarget(ScanTarget.Hand);
+        if (client == null || (automaticHandScan && discardPending)) return;
+        handLocked = false;
+        ResetHandClock(0f);
+        if (!HandScanCanRun)
+            client.TryRescan(ScanTarget.Hand);
     }
 
     void OnScanDiscard()
     {
-        StartTarget(ScanTarget.Discard);
-    }
-
-    void StartTarget(ScanTarget target)
-    {
-        if (client == null || !client.TryRescan())
+        if (client == null) return;
+        if (!automaticHandScan)
+        {
+            client.TryRescan(ScanTarget.Discard);
             return;
+        }
 
-        // A rejected request must never retarget the round already in progress.
-        ActiveTarget = target;
-        Render(client.State, null, client.Cards, string.Empty);
+        discardPending = discardQueued = true;
+        client.CancelAutomaticHandRound();
+        if (client.TryRescan(ScanTarget.Discard)) discardQueued = false;
+        RefreshScanButtons(client.State);
+        RefreshConfirmButton(client.State, client.Cards);
     }
 
     void OnRescan()
     {
-        if (client != null)
+        if (!automaticHandScan && client != null)
             client.Rescan();
+    }
+
+    internal void FreezeHandScanForHover()
+    {
+        if (client != null) client.CancelAutomaticHandRound();
+    }
+
+    internal void ToggleHandScanLock()
+    {
+        handLocked = !handLocked;
+        if (handLocked) FreezeHandScanForHover();
+        Debug.Log($"[HandScan] {(handLocked ? "locked" : "resumed")}");
     }
 
     void OnConfirm()
     {
-        if (client == null || client.State != ScanState.Reviewing)
+        if (client == null || client.State != ScanState.Reviewing || discardQueued)
             return;
 
         if (session == null)
@@ -378,6 +496,13 @@ public class ScanPanel : MonoBehaviour, IScanView
         // save rather than on every frame.
         if (tutor != null)
             tutor.Evaluate();
+
+        if (ActiveTarget == ScanTarget.Discard)
+        {
+            discardPending = discardQueued = false;
+            ResetHandClock(0f);
+            RefreshScanButtons(client.State);
+        }
     }
 
     public void SelectWildColor(string color)
@@ -413,7 +538,7 @@ public class ScanPanel : MonoBehaviour, IScanView
         bool colourChosen = !needsColour || !string.IsNullOrEmpty(pendingWildColor);
 
         confirmButton.interactable =
-            state == ScanState.Reviewing && cards != null && cards.Count > 0 && colourChosen;
+            !discardQueued && state == ScanState.Reviewing && cards != null && cards.Count > 0 && colourChosen;
     }
 
     void RefreshWildColorControls(ScanState state, IReadOnlyList<CardEntry> cards)
@@ -436,7 +561,12 @@ public class ScanPanel : MonoBehaviour, IScanView
     {
         // Clear a pending colour on every new round, including controller/HUD rescans.
         if (state == ScanState.Scanning && lastRenderedState != ScanState.Scanning)
+        {
             pendingWildColor = null;
+            if (automaticHandScan && ActiveTarget == ScanTarget.Discard) discardPending = true;
+        }
+        if (ActiveTarget == ScanTarget.Hand && lastRenderedState == ScanState.Scanning && state != ScanState.Scanning)
+            ResetHandClock(Mathf.Max(.1f, handScanInterval));
         lastRenderedState = state;
         RefreshWildColorControls(state, cards);
 
@@ -450,7 +580,7 @@ public class ScanPanel : MonoBehaviour, IScanView
         }
 
         if (statusText != null)
-            statusText.text = $"{TargetName}: {StatusLine(state, cards, message)}";
+            statusText.text = StateLabel(state, cards, message);
 
         if (listText != null)
             listText.text = CardList(state, cards, message);
@@ -461,20 +591,72 @@ public class ScanPanel : MonoBehaviour, IScanView
             if (listText != null) listText.enabled = false;
         }
 
-        // Scan means "look again now", so it stays pressable in Reviewing as well.
-        if (scanButton != null)
-            scanButton.interactable = state != ScanState.Scanning;
-
-        if (scanDiscardButton != null)
-            scanDiscardButton.interactable = state != ScanState.Scanning;
-
-        if (rescanButton != null)
-            rescanButton.interactable = state != ScanState.Scanning;
+        RefreshScanButtons(state);
 
         // Confirm needs at least one card, and a scanned Wild needs its colour chosen first.
         RefreshConfirmButton(state, cards);
 
         RefreshSavedState();
+    }
+
+    string StateLabel(ScanState state, IReadOnlyList<CardEntry> cards, string message)
+    {
+        if (state == ScanState.Seeking && ActiveTarget == ScanTarget.Discard)
+            return new TextRef(client != null && client.StartupDiscardPending
+                ? "scan.showDiscard" : "scan.startDiscard").Resolve();
+        return $"{TargetName}: {StatusLine(state, cards, message)}";
+    }
+
+    void ResetHandClock(float seconds)
+    {
+        handRemaining = seconds;
+        handClockResetFrame = Time.frameCount;
+    }
+
+    internal static float AdvanceHandClock(float remaining, float elapsed, bool ready, bool holding)
+        => ready && !holding ? Mathf.Max(0f, remaining - elapsed) : remaining;
+
+    void RefreshScanButtons(ScanState state)
+    {
+        bool scanning = state == ScanState.Scanning;
+        if (scanButton != null)
+            scanButton.interactable = !scanning && !(automaticHandScan && discardPending);
+
+        if (scanDiscardButton != null)
+            scanDiscardButton.interactable = !discardQueued &&
+                (!scanning || (client != null && client.AutomaticHandRound));
+
+        if (rescanButton != null)
+            rescanButton.interactable = automaticHandScan ? CanHoldHandScan : !scanning;
+    }
+
+    // Pointer events and the finger ray run in Update. Accept them before advancing the clock.
+    void LateUpdate()
+    {
+        if (client == null || handProgress == null) return;
+        float interval = Mathf.Max(.1f, handScanInterval);
+        if (!automaticHandScan)
+        {
+            discardPending = discardQueued = handLocked = false;
+            client.CancelAutomaticHandRound();
+        }
+        else if (discardQueued && client.TryRescan(ScanTarget.Discard))
+            discardQueued = false;
+
+        handFocused = HandScanCanRun && client.CanFocusHand;
+        if (client.AutomaticHandRound && !handFocused) client.CancelAutomaticHandRound();
+        bool holding = handProgress.Holding;
+        if (holding) FreezeHandScanForHover();
+        handProgress.Tick(Time.unscaledTime);
+        bool canCount = handFocused && !handLocked && !client.IsBusy && client.State != ScanState.Scanning;
+        float elapsed = handClockResetFrame == Time.frameCount ? 0f : Time.unscaledDeltaTime;
+        handRemaining = AdvanceHandClock(handRemaining, elapsed, canCount, holding);
+        if (canCount && !holding && handRemaining == 0f)
+            client.TryRescan(ScanTarget.Hand, automaticHand: true);
+        RefreshScanButtons(client.State);
+        handProgress.Display(automaticHandScan, handLocked, handFocused,
+            HandScanCanRun && ActiveTarget == ScanTarget.Hand && client.State == ScanState.Scanning,
+            handRemaining, interval);
     }
 
     /// <summary>

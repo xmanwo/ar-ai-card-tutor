@@ -55,7 +55,33 @@ class TutorApiTests(unittest.TestCase):
         upstream = self.post.call_args.kwargs["json"]
         sent = json.loads(upstream["messages"][1]["content"])
         self.assertFalse(sent["hand"][1]["legal"])
+        self.assertEqual([card["verdict"] for card in sent["hand"]], ["PLAYABLE", "UNPLAYABLE"])
+        self.assertEqual(result.json()["answer"], "Play Red 3. Red 3 matches the active colour.")
+        self.assertEqual((upstream["max_tokens"], upstream["temperature"]), (95, 0.25))
         self.assertEqual(upstream["thinking"], {"type": "disabled"})
+
+    def test_wild_active_colour_and_uno_are_passed_and_displayed(self):
+        self.context["discard"] = {"id": "top", "color": "Wild", "value": "Wild"}
+        self.context["uno_alert"] = True
+        result = self.send()
+        self.assertEqual(result.json()["answer"],
+                         "Play Red 3. Red 3 matches the active colour. Call UNO!")
+        sent = json.loads(self.post.call_args.kwargs["json"]["messages"][1]["content"])
+        self.assertEqual((sent["discard"]["value"], sent["active_color"], sent["uno_alert"]),
+                         ("Wild", "Red", True))
+
+    def test_no_legal_hint_draws_one(self):
+        self.context["hand"] = [self.context["hand"][1]]
+        self.completion({"answer": "Blue 2 misses the active colour and value.", "suggested_card_id": ""})
+        self.assertEqual(self.send().json()["answer"],
+                         "Draw one card. Blue 2 misses the active colour and value.")
+
+    def test_wild_match_illegal_advice_markdown_and_long_replies_are_rejected(self):
+        for text in ("Red 3 matches the Wild card.", "Play Blue 2.", "Blue 2 is playable.", "**Red 3**",
+                     "One reason. A second reason. A third reason.", "A reason. A second reason."):
+            with self.subTest(text=text):
+                self.completion({"answer": text, "suggested_card_id": "red3"})
+                self.assertEqual(self.send().status_code, 502)
 
     def test_missing_key_never_calls_cloud(self):
         with patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
