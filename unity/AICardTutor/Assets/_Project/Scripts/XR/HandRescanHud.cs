@@ -5,6 +5,8 @@ using UnityEngine.EventSystems;
 using UnityEngine.UI;
 using UnityEngine.XR;
 using UnityEngine.XR.Hands;
+using UnityEngine.XR.Interaction.Toolkit.Interactors.Visuals;
+using UnityEngine.XR.Interaction.Toolkit.UI.BodyUI;
 
 /// <summary>
 /// Controller-free scanning controls. The left Rescan HUD and ScanPanel buttons share one
@@ -86,6 +88,15 @@ public class HandRescanHud : MonoBehaviour
     Vector3 smoothedDirection;
     float nextDiagnosticAt;
     bool lastHandTracked;
+    Transform handMenuRoot;
+    readonly List<Transform> handVisualizerRoots = new List<Transform>();
+    Renderer[] handRenderers = new Renderer[0];
+    readonly List<LineRenderer> mutedLines = new List<LineRenderer>();
+    readonly List<XRInteractorLineVisual> mutedLineVisuals = new List<XRInteractorLineVisual>();
+    float nextVisualSweepAt;
+    float visualSweepInterval = 2f;
+    int lastMutedTotal = -1;
+    int handVisualSearches;
 
     // ------------------------------------------------------------------ lifecycle
 
@@ -103,6 +114,9 @@ public class HandRescanHud : MonoBehaviour
             Debug.LogError("[HandHud] no CardScanClient found - the button will do nothing.");
 
         RefreshPanelButtons();
+        SuppressOtherHandVisuals();
+        StartCoroutine(SuppressHandVisualsDelayed());
+        StartCoroutine(KeepHandMenuHidden());
 
         if (!PlaceAbovePhotoPanel())
             AttachToCamera();
@@ -118,6 +132,145 @@ public class HandRescanHud : MonoBehaviour
             scanPanel = FindFirstObjectByType<ScanPanel>();
         panelButtons = scanPanel != null
             ? scanPanel.GetComponentsInChildren<Button>(true) : new Button[0];
+    }
+
+    /// <summary>
+    /// The orange HUD line is the only hand ray this app uses. Disable the XRI near/far line
+    /// visuals, any other line renderers, and the palm-up hand menu from the MR template.
+    /// </summary>
+    void SuppressOtherHandVisuals()
+    {
+        foreach (var menu in FindObjectsByType<HandMenu>(FindObjectsInactive.Include,
+                     FindObjectsSortMode.None))
+        {
+            menu.enabled = false;
+            if (menu.handMenuUIGameObject != null)
+                menu.handMenuUIGameObject.SetActive(false);
+        }
+
+        // The MR template names its palm menu instance in the scene, not through XRI HandMenu.
+        foreach (var t in FindObjectsByType<Transform>(FindObjectsInactive.Include,
+                     FindObjectsSortMode.None))
+        {
+            if (t.name == "Hand Menu Setup MR Template Variant")
+            {
+                handMenuRoot = t;
+                t.gameObject.SetActive(false);
+                break;
+            }
+            if (t.name == "AXR Settings")
+                t.gameObject.SetActive(false);
+        }
+
+        // The XR Hands visualiser draws a translucent copy of the hand on top of the real one.
+        // In passthrough that reads as a cloud of white shards, so the whole visual is hidden
+        // and the user only sees their real hand plus the orange aim line.
+        // Only search once: the visualiser objects are not recreated after they are switched off.
+        if (handVisualizerRoots.Count == 0 && handVisualSearches < 10)
+        {
+            handVisualSearches++;
+            foreach (var behaviour in FindObjectsByType<MonoBehaviour>(FindObjectsInactive.Include,
+                         FindObjectsSortMode.None))
+            {
+                if (behaviour.GetType().Name != "HandVisualizer") continue;
+                // Public property on the XR Hands sample: turns off the per-joint line renderers.
+                var debugJoints = behaviour.GetType().GetProperty("debugDrawJoints",
+                    System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+                if (debugJoints != null && debugJoints.CanWrite &&
+                    debugJoints.PropertyType == typeof(bool))
+                    debugJoints.SetValue(behaviour, false);
+                behaviour.enabled = false;
+                handVisualizerRoots.Add(behaviour.transform);
+            }
+        }
+
+        if (handVisualizerRoots.Count > 0)
+        {
+            // Keep the objects alive: only their renderers are unwanted, and switching a whole
+            // object off risks taking the joint drivers the aim ray depends on with it.
+            var renderers = new List<Renderer>();
+            foreach (var root in handVisualizerRoots)
+            {
+                if (root == null) continue;
+                renderers.AddRange(root.GetComponentsInChildren<Renderer>(true));
+            }
+            handRenderers = renderers.ToArray();
+            foreach (var r in handRenderers)
+                r.enabled = false;
+        }
+
+        foreach (var visual in FindObjectsByType<XRInteractorLineVisual>(FindObjectsInactive.Include,
+                     FindObjectsSortMode.None))
+        {
+            visual.enabled = false;
+            if (!mutedLineVisuals.Contains(visual)) mutedLineVisuals.Add(visual);
+            var line = visual.GetComponent<LineRenderer>();
+            if (line != null) line.enabled = false;
+            visual.gameObject.SetActive(false);
+        }
+
+        foreach (var line in FindObjectsByType<LineRenderer>(FindObjectsInactive.Include,
+                     FindObjectsSortMode.None))
+        {
+            if (line.GetComponentInParent<HandRescanHud>() != null) continue;
+            line.enabled = false;
+            if (!mutedLines.Contains(line)) mutedLines.Add(line);
+        }
+
+        int mutedTotal = mutedLines.Count + mutedLineVisuals.Count;
+        if (mutedTotal != lastMutedTotal)
+        {
+            lastMutedTotal = mutedTotal;
+            Debug.Log($"[HandHud] hid hand visuals (hand meshes={handVisualizerRoots.Count}, " +
+                      $"lines={mutedLines.Count}, line visuals={mutedLineVisuals.Count}).");
+        }
+    }
+
+    /// <summary>Anything re-enabled after the first sweep is turned off again on the next frame.</summary>
+    void MuteHandVisuals()
+    {
+        for (int i = 0; i < mutedLines.Count; i++)
+        {
+            var line = mutedLines[i];
+            if (line != null && line.enabled) line.enabled = false;
+        }
+
+        for (int i = 0; i < mutedLineVisuals.Count; i++)
+        {
+            var visual = mutedLineVisuals[i];
+            if (visual != null && visual.enabled) visual.enabled = false;
+        }
+
+        for (int i = 0; i < handRenderers.Length; i++)
+        {
+            var r = handRenderers[i];
+            if (r != null && r.enabled) r.enabled = false;
+        }
+    }
+
+    System.Collections.IEnumerator SuppressHandVisualsDelayed()
+    {
+        yield return null;
+        yield return null;
+        SuppressOtherHandVisuals();
+
+        // The visualiser builds its hand meshes after hand tracking starts, so sweep again.
+        float[] waits = { 0.5f, 1f, 1.5f, 2f };
+        foreach (float wait in waits)
+        {
+            yield return new WaitForSeconds(wait);
+            SuppressOtherHandVisuals();
+        }
+    }
+
+    System.Collections.IEnumerator KeepHandMenuHidden()
+    {
+        while (true)
+        {
+            if (handMenuRoot != null && handMenuRoot.gameObject.activeSelf)
+                handMenuRoot.gameObject.SetActive(false);
+            yield return null;
+        }
     }
 
     void OnDestroy()
@@ -375,6 +528,15 @@ public class HandRescanHud : MonoBehaviour
 
     void Update()
     {
+        // Hand visuals can be rebuilt at runtime; keep them off without a per-frame scene scan.
+        MuteHandVisuals();
+        if (Time.unscaledTime >= nextVisualSweepAt)
+        {
+            nextVisualSweepAt = Time.unscaledTime + visualSweepInterval;
+            visualSweepInterval = Mathf.Min(visualSweepInterval + 1f, 10f);
+            SuppressOtherHandVisuals();
+        }
+
         if (canvasRect == null)
             return;
 
