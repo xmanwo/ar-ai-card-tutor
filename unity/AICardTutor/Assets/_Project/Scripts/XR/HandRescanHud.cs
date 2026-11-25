@@ -261,7 +261,7 @@ public class HandRescanHud : MonoBehaviour
         // CardHandView reparents the preview into the left photo panel during Awake.
         if (scanPanel == null || scanPanel.frameImage == null ||
             scanPanel.frameImage.rectTransform.parent is not RectTransform photoPanel ||
-            photoPanel.parent != scanPanel.transform)
+            photoPanel.parent != scanPanel.transform || !photoPanel.gameObject.activeInHierarchy)
             return false;
 
         // Half the original projected diameter after moving from the HUD depth to the panel.
@@ -288,6 +288,13 @@ public class HandRescanHud : MonoBehaviour
         {
             Debug.LogWarning("[HandHud] no head camera found; leaving the HUD where it is.");
             return;
+        }
+
+        // With the photo panel tucked away, keep the hand target just below the left rail.
+        if (scanPanel != null)
+        {
+            localOffset = new Vector3(scanPanel.localOffset.x,
+                scanPanel.localOffset.y - 0.30f, scanPanel.localOffset.z);
         }
 
         transform.SetParent(cam.transform, false);

@@ -26,22 +26,27 @@ public class AiTutorPanel : MonoBehaviour
         ScanPanel.StyleFloatingPanel(background);
         background.raycastTarget = false;
         float top = ScanPanel.PanelHeight * .5f;
-        heading = Text(root.transform, "Heading", tutorPanel.legalText, 26f,
-            new Vector2(362f, 38f), new Vector2(0f, top - 34f));
-        status = Text(root.transform, "Readiness", tutorPanel.legalText, 22f,
-            new Vector2(362f, 62f), new Vector2(0f, top - 86f));
-        answer = Text(root.transform, "Answer", tutorPanel.legalText, 28f,
-            new Vector2(362f, 380f), new Vector2(0f, -16f));
+        heading = Text(root.transform, "Heading", tutorPanel.legalText, 22f,
+            new Vector2(410f, 32f), new Vector2(0f, top - 40f));
+        status = Text(root.transform, "Readiness", tutorPanel.legalText, 17f,
+            new Vector2(410f, 56f), new Vector2(0f, top - 100f));
+        answer = Text(root.transform, "Answer", tutorPanel.legalText, 18f,
+            new Vector2(410f, 158f), new Vector2(0f, -76f));
         answer.enableAutoSizing = true;
-        answer.fontSizeMin = 20f;
-        answer.fontSizeMax = 26f;
-        explain = MakeButton(root.transform, "Explain", -92f, tutorPanel.legalText, out explainLabel);
-        hint = MakeButton(root.transform, "Hint", 92f, tutorPanel.legalText, out hintLabel);
+        answer.fontSizeMin = 15f;
+        answer.fontSizeMax = 21f;
+        explain = MakeButton(root.transform, "Explain", -100f, tutorPanel.legalText, out explainLabel);
+        hint = MakeButton(root.transform, "Hint", 100f, tutorPanel.legalText, out hintLabel);
         explain.onClick.AddListener(() => client.Ask("explain"));
         hint.onClick.AddListener(() => client.Ask("hint"));
         client.Changed += Render;
         previousLanguage = Loc.Current;
         previousState = client.State;
+
+        // The local rule block is a sibling of this panel; keep it above the coach background.
+        if (tutorPanel.legalText != null) tutorPanel.legalText.transform.SetAsLastSibling();
+        if (tutorPanel.reasonText != null) tutorPanel.reasonText.transform.SetAsLastSibling();
+        if (tutorPanel.blockedText != null) tutorPanel.blockedText.transform.SetAsLastSibling();
         // The hand dwell system may already have cached the old ScanPanel buttons in Start.
         // Also safe when its Start runs later: it will collect these controls itself.
         foreach (var hud in FindObjectsByType<HandRescanHud>(FindObjectsSortMode.None))
@@ -61,10 +66,12 @@ public class AiTutorPanel : MonoBehaviour
 
     void Render()
     {
-        heading.text = AiTutorClient.Local("AI tutor · DeepSeek", "AI 助手 · DeepSeek");
+        heading.text = AiTutorClient.Local("Coach · DeepSeek", "教练 · DeepSeek");
         explainLabel.text = AiTutorClient.Local("Explain", "解释牌局");
         hintLabel.text = AiTutorClient.Local("Give a hint", "给我提示");
         status.text = client.ReadinessMessage;
+        status.color = client.State == AiTutorClient.Availability.Offline
+            ? new Color32(245, 185, 66, 255) : new Color32(170, 179, 197, 255);
         answer.text = client.CanAsk ? client.Answer : string.Empty;
         explain.interactable = hint.interactable = client.CanAsk;
     }
@@ -91,7 +98,7 @@ public class AiTutorPanel : MonoBehaviour
     {
         var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
         go.transform.SetParent(parent, false);
-        Place((RectTransform)go.transform, new Vector2(174f, 64f), new Vector2(x, ScanPanel.FooterCentreY));
+        Place((RectTransform)go.transform, new Vector2(190f, 54f), new Vector2(x, ScanPanel.FooterCentreY));
         var image = go.GetComponent<Image>();
         var button = go.GetComponent<Button>();
         button.targetGraphic = image;
@@ -102,7 +109,7 @@ public class AiTutorPanel : MonoBehaviour
         colours.selectedColor = colours.highlightedColor;
         colours.disabledColor = new Color32(60, 67, 74, 255);
         button.colors = colours;
-        label = Text(go.transform, "Label", template, 22f, new Vector2(162f, 58f), Vector2.zero);
+        label = Text(go.transform, "Label", template, 18f, new Vector2(182f, 50f), Vector2.zero);
         label.alignment = TextAlignmentOptions.Center;
         return button;
     }

@@ -137,11 +137,18 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     /// <summary>Height of the panel canvas in UI units. Every row below was laid out against it.</summary>
     public const float PanelHeight = 600f;
-    public const float FloatingOffsetY = -0.145f;
-    public const float CardRowOffset = (PanelHeight - 670f) * .5f;
+    public const float FloatingOffsetY = -0.10f;
+    public const float LeftPanelOffsetX = -0.34f;
+
+    /// <summary>Right coach panel, measured in the left panel's local UI units.</summary>
+    public const float RightPanelX = 970f;
+    public const float RightPanelWidth = 460f;
+
+    public const float ContentWidth = 620f;
+    public const float CardRowOffset = 0f;
     const float FooterPadding = 16f;
     const float FooterHeight = 64f;
-    const float SavedStateY = -176f;
+    const float SavedStateY = -42f;
     static readonly Color32 PanelTint = new Color32(12, 16, 22, 214);
     static Sprite floatingPanelSprite, unoPillSprite;
 
@@ -156,27 +163,32 @@ public class ScanPanel : MonoBehaviour, IScanView
     {
         var rect = (RectTransform)transform;
 
-        rect.sizeDelta = new Vector2(rect.sizeDelta.x, PanelHeight);
-        if (Mathf.Approximately(localOffset.y, -0.26f) || Mathf.Approximately(localOffset.y, -0.20f))
-            localOffset.y = FloatingOffsetY;
+        rect.sizeDelta = new Vector2(700f, PanelHeight);
+
+        // Left rail. The right rail is the AI panel; together they leave the middle of the view
+        // free for the physical table and the player's hand.
+        localOffset = new Vector3(LeftPanelOffsetX, FloatingOffsetY, 0.85f);
+
         if (statusText != null)
         {
-            statusText.rectTransform.sizeDelta = new Vector2(-40f, 72f);
-            statusText.rectTransform.anchoredPosition = new Vector2(0f, -8f);
-            statusText.fontSize = 28f;
+            statusText.rectTransform.sizeDelta = new Vector2(ContentWidth, 48f);
+            statusText.rectTransform.anchoredPosition = new Vector2(0f, 268f);
+            statusText.fontSize = 24f;
+            statusText.alignment = TextAlignmentOptions.Center;
             statusText.overflowMode = TextOverflowModes.Ellipsis;
         }
 
-        // Frame hugs the left edge, card list hugs the right edge, so the middle stays free.
-        Place(frameImage != null ? frameImage.rectTransform : null, 180f, 180f, -240f, 158f + CardRowOffset);
-        Place(listText != null ? listText.rectTransform : null, 280f, 180f, 190f, 158f + CardRowOffset);
+        // The photo panel owns frameImage at runtime; these fallbacks only matter if it is missing.
+        Place(frameImage != null ? frameImage.rectTransform : null, 300f, 160f, 0f, 80f);
+        Place(listText != null ? listText.rectTransform : null, 420f, 150f, 100f, 140f);
 
-        // Three lines at 22pt: the box has to be tall enough for all of them, otherwise the last
-        // one ("Active colour") runs down into the button row.
+        // Text-only fallback when card textures are unavailable.
         if (savedStateText != null)
+        {
+            savedStateText.rectTransform.sizeDelta = new Vector2(ContentWidth, 96f);
+            savedStateText.rectTransform.anchoredPosition = new Vector2(0f, SavedStateY);
             savedStateText.overflowMode = TextOverflowModes.Ellipsis;
-
-        Place(savedStateText != null ? savedStateText.rectTransform : null, 660f, 84f, 0f, SavedStateY);
+        }
 
         var tutorPanel = GetComponent<TutorPanel>();
 
@@ -191,7 +203,7 @@ public class ScanPanel : MonoBehaviour, IScanView
             : "none";
 
         Debug.Log($"[ScanPanel] canvas {rect.sizeDelta.x:0}x{rect.sizeDelta.y:0}, " +
-                  $"offset {localOffset.y:0.00}, frame {framePos}");
+                  $"offset {localOffset.x:0.00},{localOffset.y:0.00}, frame {framePos}");
     }
 
     /// <summary>Shares the teaching colours and headline position with the prefab preview.</summary>
@@ -204,21 +216,32 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (tutorPanel == null)
             return;
 
-        // The Wild colour chip sits to the left of the headline.
+        bool runtime = Application.isPlaying;
+        float legalX = runtime ? RightPanelX : 60f;
+        float legalY = runtime ? 158f : 17f;
+        float legalWidth = runtime ? 410f : 540f;
+
+        // The local-rule headline sits at the top of the right coach rail.
         Place(tutorPanel.legalText != null ? tutorPanel.legalText.rectTransform : null,
-            540f, 36f, 60f, 17f + CardRowOffset);
+            legalWidth, 32f, legalX, legalY);
+        if (tutorPanel.legalText != null)
+        {
+            tutorPanel.legalText.fontSize = runtime ? 20f : 22f;
+            tutorPanel.legalText.alignment = TextAlignmentOptions.TopLeft;
+            tutorPanel.legalText.overflowMode = TextOverflowModes.Ellipsis;
+        }
         if (tutorPanel.reasonText != null)
         {
-            tutorPanel.reasonText.fontSize = 20f;
+            tutorPanel.reasonText.fontSize = runtime ? 18f : 20f;
             tutorPanel.reasonText.overflowMode = TextOverflowModes.Ellipsis;
         }
         if (tutorPanel.blockedText != null)
         {
-            tutorPanel.blockedText.fontSize = 20f;
+            tutorPanel.blockedText.fontSize = runtime ? 17f : 20f;
             tutorPanel.blockedText.overflowMode = TextOverflowModes.Ellipsis;
             tutorPanel.blockedText.color = new Color32(209, 213, 219, 255);
         }
-        if (!Application.isPlaying)
+        if (!runtime)
         {
             Place(tutorPanel.reasonText?.rectTransform, 660f, 50f, 0f, -76f);
             Place(tutorPanel.blockedText?.rectTransform, 660f, 50f, 0f, -132f);
@@ -228,35 +251,33 @@ public class ScanPanel : MonoBehaviour, IScanView
     internal void LayoutRuleLines(TutorPanel panel)
     {
         if (panel == null) return;
-        const float top = -42f;
-        float bottom = cardFaces != null && cardFaces.IsAvailable ?
-            -PanelHeight * .5f + FooterPadding + FooterHeight + 8f :
-            SavedStateY + 42f + 6f;
+        const float top = 120f;
+        const float bottom = 4f;
+        const float width = 410f;
         float reason = RuleTextHeight(panel.reasonText);
         float blocked = RuleTextHeight(panel.blockedText);
-        float gap = reason > 0f && blocked > 0f ? 7f : 0f;
+        float gap = reason > 0f && blocked > 0f ? 6f : 0f;
         float available = top - bottom - gap;
         float reasonHeight = Mathf.Min(reason, available - Mathf.Min(blocked, available * .5f));
         float blockedHeight = Mathf.Min(blocked, available - reasonHeight);
-        float y = top - (available - reasonHeight - blockedHeight) * .60f;
-        Place(panel.reasonText?.rectTransform, 660f, reasonHeight, 0f, y - reasonHeight * .5f);
+        float y = top - (available - reasonHeight - blockedHeight) * .55f;
+        Place(panel.reasonText?.rectTransform, width, reasonHeight, RightPanelX, y - reasonHeight * .5f);
         y -= reasonHeight + gap;
-        Place(panel.blockedText?.rectTransform, 660f, blockedHeight, 0f, y - blockedHeight * .5f);
+        Place(panel.blockedText?.rectTransform, width, blockedHeight, RightPanelX, y - blockedHeight * .5f);
     }
 
     static float RuleTextHeight(TMP_Text line) => line == null || string.IsNullOrEmpty(line.text)
-        ? 0f : Mathf.Ceil(line.GetPreferredValues(line.text, 660f, 0f).y) + 3f;
+        ? 0f : Mathf.Ceil(line.GetPreferredValues(line.text, 410f, 0f).y) + 3f;
 
     internal static void ApplyPhotoLayout(RectTransform rect, bool debug)
     {
-        float width = debug ? 400f : 310f;
-        float height = debug ? 450f : 212f;
-        Place(rect, width, height, -368f - width * .5f, 202f + CardRowOffset - height * .5f);
+        // The photo/debug page is an overlay on the left rail, opened from the Debug control.
+        Place(rect, debug ? ContentWidth : 600f, debug ? 430f : 330f, 0f, 10f);
     }
 
     internal static void ApplyAiLayout(RectTransform rect)
     {
-        Place(rect, 394f, PanelHeight, 565f, 0f);
+        Place(rect, RightPanelWidth, PanelHeight, RightPanelX, 0f);
     }
 
     internal static float FooterCentreY => -PanelHeight * .5f + FooterPadding + FooterHeight * .5f;
@@ -310,26 +331,51 @@ public class ScanPanel : MonoBehaviour, IScanView
     public void ApplyScanControlsLayout()
     {
         if (wildColorControls != null)
-            Place((RectTransform)wildColorControls.transform, 120f, 120f, 252f, 142f + CardRowOffset);
+            Place((RectTransform)wildColorControls.transform, 110f, 110f, 210f, -10f);
 
         if (wildColorText != null)
         {
-            Place(wildColorText.rectTransform, 156f, 34f, 0f, 88f);
+            Place(wildColorText.rectTransform, 160f, 28f, 210f, -82f);
+            wildColorText.fontSize = 14f;
             wildColorText.alignment = TextAlignmentOptions.Center;
             wildColorText.overflowMode = TextOverflowModes.Ellipsis;
         }
 
         if (scanButton != null && scanButton.transform.parent is RectTransform row)
         {
-            row.anchorMin = row.anchorMax = row.pivot = new Vector2(0.5f, 0f);
-            Place(row, 660f, FooterHeight, 0f, FooterPadding);
+            row.anchorMin = row.anchorMax = row.pivot = new Vector2(0.5f, 0.5f);
+            Place(row, 660f, 60f, 0f, -220f);
         }
+
+        PlaceButton(scanDiscardButton, 150f, 60f, -245f);
+        PlaceButton(scanButton, 170f, 60f, -65f);
+        PlaceButton(rescanButton, 145f, 60f, 95f);
+        PlaceButton(confirmButton, 145f, 60f, 245f);
+
+        SetButtonLabel(scanButton, "Scan hand", "扫描手牌");
+        SetButtonLabel(scanDiscardButton, "Scan discard", "扫描桌顶");
+        SetButtonLabel(confirmButton, "Confirm", "确认");
 
         var scanBlue = new Color32(61, 112, 217, 255);
         TintButton(scanButton, scanBlue);
-        TintButton(scanDiscardButton, scanBlue);
+        TintButton(scanDiscardButton, new Color32(52, 59, 72, 255));
         TintButton(rescanButton, new Color32(69, 75, 84, 255));
         TintButton(confirmButton, new Color32(25, 125, 72, 255));
+    }
+
+    static void PlaceButton(Button button, float width, float height, float x)
+    {
+        if (button == null) return;
+        var rect = (RectTransform)button.transform;
+        rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+        Place(rect, width, height, x, 0f);
+    }
+
+    static void SetButtonLabel(Button button, string english, string chinese)
+    {
+        if (button == null) return;
+        var label = button.GetComponentInChildren<TMP_Text>();
+        if (label != null) label.text = Loc.Current == Language.Zh ? chinese : english;
     }
 
     static void TintButton(Button button, Color colour)
