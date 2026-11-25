@@ -141,17 +141,18 @@ public class ScanPanel : MonoBehaviour, IScanView
         // Vertical budget on a 670 tall canvas (335 at the top, -335 at the bottom):
         //   status        327 .. 255
         //   frame / list  248 ..  68
-        //   wheel         203 ..  83   right column, replaces the list while picking
+        //   colour picker 247 ..  82   right column, replaces the list while picking
         //   headline       59 ..   7
         //   reasons         1 .. -91
         //   blocked       -97 .. -165
-        //   saved        -171 .. -255   three lines, so it needs 84 and not 52
-        //   buttons      -327 .. -263
+        //   saved        -171 .. -255   text-only fallback
+        //   buttons      -319 .. -255
         if (statusText != null)
         {
             statusText.rectTransform.sizeDelta = new Vector2(-40f, 72f);
             statusText.rectTransform.anchoredPosition = new Vector2(0f, -8f);
             statusText.fontSize = 28f;
+            statusText.overflowMode = TextOverflowModes.Ellipsis;
         }
 
         // Frame hugs the left edge, card list hugs the right edge, so the middle stays free.
@@ -169,26 +170,14 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         if (tutorPanel != null)
         {
-            Place(tutorPanel.legalText != null ? tutorPanel.legalText.rectTransform : null,
-                660f, 52f, 0f, 33f);
             Place(tutorPanel.reasonText != null ? tutorPanel.reasonText.rectTransform : null,
                 660f, 92f, 0f, -45f);
             Place(tutorPanel.blockedText != null ? tutorPanel.blockedText.rectTransform : null,
                 660f, 68f, 0f, -131f);
         }
 
-        // The wheel sits in the right column and takes the list's place while it is up.
-        if (wildColorControls != null)
-            Place((RectTransform)wildColorControls.transform, 120f, 120f, 190f, 143f);
-
-        if (wildColorText != null)
-            Place(wildColorText.rectTransform, 200f, 56f, -180f, 0f);
-
-        if (scanButton != null && scanButton.transform.parent is RectTransform row)
-        {
-            row.sizeDelta = new Vector2(660f, 64f);
-            row.anchoredPosition = new Vector2(0f, 8f);
-        }
+        ApplyTutorReadability(tutorPanel);
+        ApplyScanControlsLayout();
 
         // One line in logcat makes a wrong canvas size obvious without guessing from a screenshot.
         string framePos = frameImage != null
@@ -197,6 +186,55 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         Debug.Log($"[ScanPanel] canvas {rect.sizeDelta.x:0}x{rect.sizeDelta.y:0}, " +
                   $"offset {localOffset.y:0.00}, frame {framePos}");
+    }
+
+    /// <summary>Shares the teaching colours and headline position with the prefab preview.</summary>
+    public void ApplyTutorReadability(TutorPanel tutorPanel)
+    {
+        var background = transform.Find("Background")?.GetComponent<Image>();
+        if (background != null)
+            background.color = new Color(0f, 0f, 0f, 0.92f);
+
+        if (tutorPanel == null)
+            return;
+
+        // The Wild colour chip sits to the left of the headline.
+        Place(tutorPanel.legalText != null ? tutorPanel.legalText.rectTransform : null,
+            540f, 52f, 60f, 33f);
+        if (tutorPanel.blockedText != null)
+            tutorPanel.blockedText.color = new Color32(209, 213, 219, 255);
+    }
+
+    /// <summary>Shares the control geometry and colours with the prefab preview.</summary>
+    public void ApplyScanControlsLayout()
+    {
+        if (wildColorControls != null)
+            Place((RectTransform)wildColorControls.transform, 120f, 120f, 252f, 142f);
+
+        if (wildColorText != null)
+        {
+            Place(wildColorText.rectTransform, 156f, 34f, 0f, 88f);
+            wildColorText.alignment = TextAlignmentOptions.Center;
+            wildColorText.overflowMode = TextOverflowModes.Ellipsis;
+        }
+
+        if (scanButton != null && scanButton.transform.parent is RectTransform row)
+        {
+            row.anchorMin = row.anchorMax = row.pivot = new Vector2(0.5f, 0f);
+            Place(row, 660f, 64f, 0f, 16f);
+        }
+
+        var scanBlue = new Color32(61, 112, 217, 255);
+        TintButton(scanButton, scanBlue);
+        TintButton(scanDiscardButton, scanBlue);
+        TintButton(rescanButton, new Color32(69, 75, 84, 255));
+        TintButton(confirmButton, new Color32(25, 125, 72, 255));
+    }
+
+    static void TintButton(Button button, Color colour)
+    {
+        if (button != null && button.targetGraphic != null)
+            button.targetGraphic.color = colour;
     }
 
     static void Place(RectTransform rect, float width, float height, float x, float y)
@@ -391,7 +429,7 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         if (wildColorText != null)
             wildColorText.text = string.IsNullOrEmpty(pendingWildColor)
-                ? "Choose\ncolour" : $"Selected:\n{pendingWildColor}";
+                ? "Choose colour" : $"Selected: {pendingWildColor}";
     }
 
     public void Render(ScanState state, Texture2D frame, IReadOnlyList<CardEntry> cards, string message)
@@ -467,6 +505,10 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (savedStateText == null)
             return;
 
+        savedStateText.enabled = cardFaces == null || !cardFaces.IsAvailable;
+        if (!savedStateText.enabled)
+            return;
+
         if (session == null)
         {
             savedStateText.text = "Saved state unavailable";
@@ -476,8 +518,6 @@ public class ScanPanel : MonoBehaviour, IScanView
         var text = new StringBuilder("Saved hand: ");
         if (!session.HasHand)
             text.Append("not confirmed");
-        else if (cardFaces != null && cardFaces.IsAvailable)
-            text.Append(session.Hand.Count).Append(" cards");
         else for (int i = 0; i < session.Hand.Count; i++)
         {
             if (i > 0) text.Append(", ");
@@ -502,10 +542,14 @@ public class ScanPanel : MonoBehaviour, IScanView
                 return "Recognising...";
 
             case ScanState.Reviewing:
-                return cards.Count > 0 ? $"{cards.Count} card(s) detected" : "No cards detected";
+                return cards.Count > 0
+                    ? new TextRef(cards.Count == 1 ? "scan.detectedOne" : "scan.detectedMany",
+                        new TextVar("n", cards.Count.ToString())).Resolve()
+                    : "No cards detected";
 
             case ScanState.Confirmed:
-                return $"Confirmed {cards.Count} cards.";
+                return new TextRef(cards.Count == 1 ? "scan.confirmedOne" : "scan.confirmedMany",
+                    new TextVar("n", cards.Count.ToString())).Resolve();
 
             case ScanState.Failed:
                 return "Nothing recognised";

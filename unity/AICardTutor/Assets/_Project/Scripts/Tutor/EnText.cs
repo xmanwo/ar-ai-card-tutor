@@ -43,6 +43,8 @@ public static class EnText
         // ---- Why a card is or is not playable ----------------------------
         { "why.sameColor",
           "{card} can be played: same colour as the top card ({colour})" },
+        { "why.activeColourMatch", "{card} can be played: matches the active colour ({colour})." },
+        { "why.activeColourMismatch", "{card} cannot be played: active colour is {colour}." },
         { "why.sameValue",
           "{card} can be played: same value as the top card ({value})" },
         { "why.wild",
@@ -64,6 +66,13 @@ public static class EnText
 
         // ---- Tutor summary ----------------------------------------------
         { "tutor.canPlay", "Can play ({n}): {list}" },
+        { "tutor.playableOne", "Playable: 1 card (green border)" },
+        { "tutor.playableMany", "Playable: {n} cards (green border)" },
+        { "tutor.activeColourLabel", "ACTIVE: {colour}" },
+        { "scan.detectedOne", "1 card detected" },
+        { "scan.detectedMany", "{n} cards detected" },
+        { "scan.confirmedOne", "Confirmed 1 card." },
+        { "scan.confirmedMany", "Confirmed {n} cards." },
         { "tutor.cannotPlay", "No playable cards - draw one" },
         { "tutor.notReady", "Confirm a hand and the discard card first" }
     };

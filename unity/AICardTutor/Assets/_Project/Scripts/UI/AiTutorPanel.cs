@@ -21,21 +21,21 @@ public class AiTutorPanel : MonoBehaviour
 
         var root = new GameObject("AiTutor", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         root.transform.SetParent(transform, false);
-        Place((RectTransform)root.transform, new Vector2(700f, 430f), new Vector2(720f, 110f));
+        Place((RectTransform)root.transform, new Vector2(460f, 510f), new Vector2(594f, 70f));
         var background = root.GetComponent<Image>();
         background.color = new Color(0.045f, 0.07f, 0.10f, 0.96f);
         background.raycastTarget = false;
         heading = Text(root.transform, "Heading", tutorPanel.legalText, 28f,
-            new Vector2(650f, 45f), new Vector2(0f, 175f));
+            new Vector2(420f, 40f), new Vector2(0f, 218f));
         status = Text(root.transform, "Readiness", tutorPanel.legalText, 22f,
-            new Vector2(650f, 36f), new Vector2(0f, 127f));
+            new Vector2(420f, 46f), new Vector2(0f, 171f));
         answer = Text(root.transform, "Answer", tutorPanel.legalText, 28f,
-            new Vector2(650f, 200f), Vector2.zero);
+            new Vector2(420f, 294f), new Vector2(0f, -15f));
         answer.enableAutoSizing = true;
-        answer.fontSizeMin = 22f;
-        answer.fontSizeMax = 28f;
-        explain = MakeButton(root.transform, "Explain", -170f, tutorPanel.legalText, out explainLabel);
-        hint = MakeButton(root.transform, "Hint", 170f, tutorPanel.legalText, out hintLabel);
+        answer.fontSizeMin = 20f;
+        answer.fontSizeMax = 26f;
+        explain = MakeButton(root.transform, "Explain", -109f, tutorPanel.legalText, out explainLabel);
+        hint = MakeButton(root.transform, "Hint", 109f, tutorPanel.legalText, out hintLabel);
         explain.onClick.AddListener(() => client.Ask("explain"));
         hint.onClick.AddListener(() => client.Ask("hint"));
         client.Changed += Render;
@@ -64,18 +64,8 @@ public class AiTutorPanel : MonoBehaviour
         explainLabel.text = AiTutorClient.Local("Explain", "解释牌局");
         hintLabel.text = AiTutorClient.Local("Give a hint", "给我提示");
         status.text = client.ReadinessMessage;
-        answer.text = string.IsNullOrEmpty(client.Answer)
-            ? AiTutorClient.Local("Confirm your cards, then ask for an explanation or a hint.",
-                "确认桌顶和手牌后，点击按钮获取解释或提示。") : client.Answer;
-        bool ready = client.State == AiTutorClient.Availability.Ready;
-        explain.interactable = hint.interactable = ready && !client.Busy;
-    }
-
-    void LateUpdate()
-    {
-        if (client == null || explain == null) return;
-        bool ready = client.State == AiTutorClient.Availability.Ready;
-        explain.interactable = hint.interactable = ready && !client.Busy;
+        answer.text = client.CanAsk ? client.Answer : string.Empty;
+        explain.interactable = hint.interactable = client.CanAsk;
     }
 
     static TMP_Text Text(Transform parent, string name, TMP_Text template, float size, Vector2 dimensions, Vector2 position)
@@ -100,12 +90,18 @@ public class AiTutorPanel : MonoBehaviour
     {
         var go = new GameObject(name, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
         go.transform.SetParent(parent, false);
-        Place((RectTransform)go.transform, new Vector2(310f, 64f), new Vector2(x, -165f));
+        Place((RectTransform)go.transform, new Vector2(198f, 64f), new Vector2(x, -212f));
         var image = go.GetComponent<Image>();
-        image.color = new Color(0.12f, 0.32f, 0.48f, 1f);
         var button = go.GetComponent<Button>();
         button.targetGraphic = image;
-        label = Text(go.transform, "Label", template, 28f, new Vector2(300f, 60f), Vector2.zero);
+        var colours = button.colors;
+        colours.normalColor = new Color32(31, 82, 122, 255);
+        colours.highlightedColor = new Color32(48, 110, 154, 255);
+        colours.pressedColor = new Color32(23, 62, 92, 255);
+        colours.selectedColor = colours.highlightedColor;
+        colours.disabledColor = new Color32(60, 67, 74, 255);
+        button.colors = colours;
+        label = Text(go.transform, "Label", template, 23f, new Vector2(184f, 58f), Vector2.zero);
         label.alignment = TextAlignmentOptions.Center;
         return button;
     }
