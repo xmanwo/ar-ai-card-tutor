@@ -36,7 +36,7 @@ public static class ScanPanelPrefabBuilder
         canvas.renderMode = RenderMode.WorldSpace;
 
         var rootRect = root.GetComponent<RectTransform>();
-        rootRect.sizeDelta = new Vector2(700f, 660f);
+        rootRect.sizeDelta = new Vector2(ScanPanel.PanelWidth, ScanPanel.PanelHeight);
         rootRect.localScale = new Vector3(0.001f, 0.001f, 0.001f);
 
         // Background ------------------------------------------------------
@@ -277,7 +277,7 @@ public static class ScanPanelPrefabBuilder
     public static void ConfigureTutorPanel(ScanPanel panel)
     {
         var rootRect = (RectTransform)panel.transform;
-        rootRect.sizeDelta = new Vector2(700f, ScanPanel.PanelHeight);
+        rootRect.sizeDelta = new Vector2(ScanPanel.PanelWidth, ScanPanel.PanelHeight);
         var offset = panel.localOffset;
         offset.y = ScanPanel.FloatingOffsetY;
         panel.localOffset = offset;

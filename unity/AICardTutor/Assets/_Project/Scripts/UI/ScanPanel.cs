@@ -136,15 +136,18 @@ public class ScanPanel : MonoBehaviour, IScanView
     }
 
     /// <summary>Height of the panel canvas in UI units. Every row below was laid out against it.</summary>
-    public const float PanelHeight = 600f;
+    public const float PanelHeight = 720f;
+    /// <summary>Left rail width. Narrower than before so the panel no longer crowds the centre.</summary>
+    public const float PanelWidth = 510f;
     public const float FloatingOffsetY = -0.10f;
-    public const float LeftPanelOffsetX = -0.34f;
+    /// <summary>The table rail sits on the right; the coach rail mirrors it on the left.</summary>
+    public const float LeftPanelOffsetX = 0.34f;
 
-    /// <summary>Right coach panel, measured in the left panel's local UI units.</summary>
-    public const float RightPanelX = 970f;
+    /// <summary>The coach panel, measured in the table panel's local UI units.</summary>
+    public const float RightPanelX = -970f;
     public const float RightPanelWidth = 460f;
 
-    public const float ContentWidth = 620f;
+    public const float ContentWidth = 450f;
     public const float CardRowOffset = 0f;
     const float FooterPadding = 16f;
     const float FooterHeight = 64f;
@@ -163,7 +166,7 @@ public class ScanPanel : MonoBehaviour, IScanView
     {
         var rect = (RectTransform)transform;
 
-        rect.sizeDelta = new Vector2(700f, PanelHeight);
+        rect.sizeDelta = new Vector2(PanelWidth, PanelHeight);
 
         // Left rail. The right rail is the AI panel; together they leave the middle of the view
         // free for the physical table and the player's hand.
@@ -171,16 +174,19 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         if (statusText != null)
         {
-            statusText.rectTransform.sizeDelta = new Vector2(ContentWidth, 48f);
-            statusText.rectTransform.anchoredPosition = new Vector2(0f, 268f);
-            statusText.fontSize = 24f;
+            // The prefab anchors this line to the top edge; normalise it before using centre coords.
+            statusText.rectTransform.anchorMin = statusText.rectTransform.anchorMax =
+                statusText.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            statusText.rectTransform.sizeDelta = new Vector2(ContentWidth, 40f);
+            statusText.rectTransform.anchoredPosition = new Vector2(0f, 312f);
+            statusText.fontSize = 20f;
             statusText.alignment = TextAlignmentOptions.Center;
             statusText.overflowMode = TextOverflowModes.Ellipsis;
         }
 
         // The photo panel owns frameImage at runtime; these fallbacks only matter if it is missing.
-        Place(frameImage != null ? frameImage.rectTransform : null, 300f, 160f, 0f, 80f);
-        Place(listText != null ? listText.rectTransform : null, 420f, 150f, 100f, 140f);
+        Place(frameImage != null ? frameImage.rectTransform : null, 280f, 150f, 0f, 80f);
+        Place(listText != null ? listText.rectTransform : null, 380f, 150f, 40f, 140f);
 
         // Text-only fallback when card textures are unavailable.
         if (savedStateText != null)
@@ -218,7 +224,7 @@ public class ScanPanel : MonoBehaviour, IScanView
 
         bool runtime = Application.isPlaying;
         float legalX = runtime ? RightPanelX : 60f;
-        float legalY = runtime ? 158f : 17f;
+        float legalY = runtime ? 190f : 17f;
         float legalWidth = runtime ? 410f : 540f;
 
         // The local-rule headline sits at the top of the right coach rail.
@@ -243,15 +249,15 @@ public class ScanPanel : MonoBehaviour, IScanView
         }
         if (!runtime)
         {
-            Place(tutorPanel.reasonText?.rectTransform, 660f, 50f, 0f, -76f);
-            Place(tutorPanel.blockedText?.rectTransform, 660f, 50f, 0f, -132f);
+            Place(tutorPanel.reasonText?.rectTransform, 410f, 50f, 0f, -76f);
+            Place(tutorPanel.blockedText?.rectTransform, 410f, 50f, 0f, -132f);
         }
     }
 
     internal void LayoutRuleLines(TutorPanel panel)
     {
         if (panel == null) return;
-        const float top = 120f;
+        const float top = 160f;
         const float bottom = 4f;
         const float width = 410f;
         float reason = RuleTextHeight(panel.reasonText);
@@ -272,7 +278,7 @@ public class ScanPanel : MonoBehaviour, IScanView
     internal static void ApplyPhotoLayout(RectTransform rect, bool debug)
     {
         // The photo/debug page is an overlay on the left rail, opened from the Debug control.
-        Place(rect, debug ? ContentWidth : 600f, debug ? 430f : 330f, 0f, 10f);
+        Place(rect, debug ? ContentWidth : 430f, debug ? 430f : 300f, 0f, 26f);
     }
 
     internal static void ApplyAiLayout(RectTransform rect)
@@ -331,11 +337,11 @@ public class ScanPanel : MonoBehaviour, IScanView
     public void ApplyScanControlsLayout()
     {
         if (wildColorControls != null)
-            Place((RectTransform)wildColorControls.transform, 110f, 110f, 210f, -10f);
+            Place((RectTransform)wildColorControls.transform, 110f, 110f, 160f, 20f);
 
         if (wildColorText != null)
         {
-            Place(wildColorText.rectTransform, 160f, 28f, 210f, -82f);
+            Place(wildColorText.rectTransform, 170f, 28f, 160f, -52f);
             wildColorText.fontSize = 14f;
             wildColorText.alignment = TextAlignmentOptions.Center;
             wildColorText.overflowMode = TextOverflowModes.Ellipsis;
@@ -344,13 +350,14 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (scanButton != null && scanButton.transform.parent is RectTransform row)
         {
             row.anchorMin = row.anchorMax = row.pivot = new Vector2(0.5f, 0.5f);
-            Place(row, 660f, 60f, 0f, -220f);
+            // Two rows of two: the rail is too narrow for a single four-button strip.
+            Place(row, 470f, 116f, 0f, -252f);
         }
 
-        PlaceButton(scanDiscardButton, 150f, 60f, -245f);
-        PlaceButton(scanButton, 170f, 60f, -65f);
-        PlaceButton(rescanButton, 145f, 60f, 95f);
-        PlaceButton(confirmButton, 145f, 60f, 245f);
+        PlaceButton(scanDiscardButton, 226f, 52f, -119f, 30f);
+        PlaceButton(scanButton, 226f, 52f, 119f, 30f);
+        PlaceButton(rescanButton, 226f, 52f, -119f, -30f);
+        PlaceButton(confirmButton, 226f, 52f, 119f, -30f);
 
         SetButtonLabel(scanButton, "Scan hand", "扫描手牌");
         SetButtonLabel(scanDiscardButton, "Scan discard", "扫描桌顶");
@@ -363,12 +370,12 @@ public class ScanPanel : MonoBehaviour, IScanView
         TintButton(confirmButton, new Color32(25, 125, 72, 255));
     }
 
-    static void PlaceButton(Button button, float width, float height, float x)
+    static void PlaceButton(Button button, float width, float height, float x, float y)
     {
         if (button == null) return;
         var rect = (RectTransform)button.transform;
         rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
-        Place(rect, width, height, x, 0f);
+        Place(rect, width, height, x, y);
     }
 
     static void SetButtonLabel(Button button, string english, string chinese)

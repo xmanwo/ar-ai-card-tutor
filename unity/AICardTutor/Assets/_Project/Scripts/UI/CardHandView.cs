@@ -12,6 +12,7 @@ public class CardHandView : MonoBehaviour
     RectTransform root, handRow, discardSlot, photoRoot;
     GameObject unoPill;
     TMP_Text handTitle, discardTitle, emptyHand;
+    TMP_Text tableLabel, discardLabel, discardMeta;
     TMP_Text photoTitle, photoPlaceholder, cropStatus, cropModeText;
     Button cropMode, photoToggle, photoClose;
     TMP_Text debugLabel, photoToggleLabel, cropChip, photoChip, photoCloseLabel;
@@ -47,18 +48,39 @@ public class CardHandView : MonoBehaviour
             return;
         }
         font = owner.statusText != null ? owner.statusText.font : TMP_Settings.defaultFontAsset;
-        root = NewRect("CardFaces", transform, new Vector2(700, ScanPanel.PanelHeight),
+        root = NewRect("CardFaces", transform, new Vector2(ScanPanel.PanelWidth, ScanPanel.PanelHeight),
             Vector2.zero);
-        handRow = NewRect("HandRow", root, new Vector2(430, 150), new Vector2(100, 140));
-        discardSlot = NewRect("DiscardSlot", root, new Vector2(100, 150), new Vector2(-245, 140));
-        handTitle = Text(root, "HandTitle", new Vector2(260, 30), new Vector2(15, 222), 20);
-        discardTitle = Text(root, "TopTitle", new Vector2(170, 40), new Vector2(-245, 222), 16);
+        handRow = NewRect("HandRow", root, new Vector2(470, 150), new Vector2(0, -24));
+        discardSlot = NewRect("DiscardSlot", root, new Vector2(96, 146), new Vector2(-180, 210));
+        handTitle = Text(root, "HandTitle", new Vector2(470, 28), new Vector2(0, 92), 18);
+        discardTitle = Text(root, "TopTitle", new Vector2(170, 40), new Vector2(-180, 282), 16);
         discardTitle.alignment = TextAlignmentOptions.Center;
-        emptyHand = Text(root, "EmptyHand", new Vector2(430, 100), new Vector2(100, 140), 20);
+        discardTitle.gameObject.SetActive(false);
+        emptyHand = Text(root, "EmptyHand", new Vector2(460, 50), new Vector2(0, -142), 18);
         emptyHand.alignment = TextAlignmentOptions.Center;
-        previous = PageButton("PreviousCards", "<", 250, 40, () => { page--; Draw(); });
-        next = PageButton("NextCards", ">", 300, 40, () => { page++; Draw(); });
-        var pill = NewRect("CallUno", root, new Vector2(120f, 28f), new Vector2(250f, 222f));
+
+        tableLabel = Text(root, "TableLabel", new Vector2(200, 20), new Vector2(-235, 344), 11);
+        tableLabel.characterSpacing = 2f;
+        tableLabel.color = new Color32(142, 152, 173, 255);
+        tableLabel.text = Local("TABLE", "牌桌");
+
+        discardLabel = Text(root, "DiscardLabel", new Vector2(240, 18), new Vector2(-235, 278), 11);
+        discardLabel.characterSpacing = 1.5f;
+        discardLabel.color = new Color32(127, 138, 159, 255);
+        discardLabel.text = Local("DISCARD PILE", "弃牌堆");
+
+        discardMeta = Text(root, "DiscardMeta", new Vector2(205, 90), new Vector2(-25, 242), 17);
+        discardMeta.alignment = TextAlignmentOptions.TopLeft;
+        discardMeta.color = new Color32(223, 229, 239, 255);
+
+        var dividerRect = NewRect("Divider", root, new Vector2(470, 1), new Vector2(0, 112));
+        var dividerImage = dividerRect.gameObject.AddComponent<Image>();
+        dividerImage.color = new Color(1f, 1f, 1f, .09f);
+        dividerImage.raycastTarget = false;
+
+        previous = PageButton("PreviousCards", "<", 185, -142, () => { page--; Draw(); });
+        next = PageButton("NextCards", ">", 232, -142, () => { page++; Draw(); });
+        var pill = NewRect("CallUno", root, new Vector2(120f, 28f), new Vector2(175f, 344f));
         var pillBackground = pill.gameObject.AddComponent<Image>();
         pillBackground.raycastTarget = false;
         ScanPanel.StyleUnoPill(pillBackground);
@@ -126,16 +148,16 @@ public class CardHandView : MonoBehaviour
         bool reviewingHand = lastTarget == ScanTarget.Hand && (lastState == ScanState.Reviewing ||
             (owner.client != null && owner.client.RetainingHandDraft));
         bool pickingWildColour = owner.wildColorControls != null && owner.wildColorControls.activeSelf;
-        // The left rail owns the cards; the wheel takes the free right half while picking.
-        const float handLeft = -115f;
-        float rowWidth = pickingWildColour ? 300f : 430f;
-        float titleWidth = pickingWildColour ? 210f : 260f;
+        // Stacked table rail: discard on top, the hand below, wheel on the free right while picking.
+        const float handLeft = -235f;
+        float rowWidth = pickingWildColour ? 280f : 470f;
+        float titleWidth = pickingWildColour ? 240f : 470f;
         handRow.sizeDelta = new Vector2(rowWidth, 150f);
-        handRow.anchoredPosition = new Vector2(handLeft + rowWidth * 0.5f, 140f);
-        handTitle.rectTransform.sizeDelta = new Vector2(titleWidth, 30f);
-        handTitle.rectTransform.anchoredPosition = new Vector2(handLeft + titleWidth * 0.5f, 222f);
-        ((RectTransform)previous.transform).anchoredPosition = new Vector2(250f, 40f);
-        ((RectTransform)next.transform).anchoredPosition = new Vector2(300f, 40f);
+        handRow.anchoredPosition = new Vector2(0f, -24f);
+        handTitle.rectTransform.sizeDelta = new Vector2(titleWidth, 28f);
+        handTitle.rectTransform.anchoredPosition = new Vector2(handLeft + titleWidth * 0.5f, 92f);
+        ((RectTransform)previous.transform).anchoredPosition = new Vector2(185f, -142f);
+        ((RectTransform)next.transform).anchoredPosition = new Vector2(232f, -142f);
         var cards = HandFaces(reviewingHand);
         var advice = owner.tutor != null ? owner.tutor.Current : null;
         unoPill.SetActive(lastState != ScanState.Scanning && lastState != ScanState.Reviewing &&
@@ -150,7 +172,10 @@ public class CardHandView : MonoBehaviour
         Clear(discardSlot);
         string phase = reviewingHand ? Local("Review", "待确认") : owner.session != null && owner.session.HasHand
             ? Local("Saved", "已保存") : Local("Not saved", "未保存");
-        handTitle.text = Local("Hand", "手牌") + $" ({cards.Count}) · {phase}" + (pages > 1 ? $"  {page+1}/{pages}" : "");
+        if (tableLabel != null) tableLabel.text = Local("TABLE", "牌桌");
+        if (discardLabel != null) discardLabel.text = Local("DISCARD PILE", "弃牌堆");
+        handTitle.text = Local("YOUR HAND", "你的手牌") + $" ({cards.Count}) · {phase}" +
+            (pages > 1 ? $"  {page+1}/{pages}" : "");
         previous.gameObject.SetActive(pages > 1 && !pickingWildColour);
         next.gameObject.SetActive(pages > 1 && !pickingWildColour);
         previous.interactable = page > 0;
@@ -165,6 +190,20 @@ public class CardHandView : MonoBehaviour
             Face card = cards[start+i];
             float x = HandCardLayout.PositionX(i, visible, rowWidth, 96f);
             MakeCard(handRow, card, new Vector2(x, card.Legal ? 4 : 0), new Vector2(96, 144));
+        }
+        if (cards.Count == 0 && !pickingWildColour)
+        {
+            for (int i = 0; i < 5; i++)
+            {
+                var slot = NewRect("EmptySlot", handRow, new Vector2(58f, 84f),
+                    new Vector2((i - 2) * 66f, 0f));
+                var image = slot.gameObject.AddComponent<Image>();
+                image.color = new Color(1f, 1f, 1f, .035f);
+                image.raycastTarget = false;
+                var outline = slot.gameObject.AddComponent<Outline>();
+                outline.effectColor = new Color(1f, 1f, 1f, .10f);
+                outline.effectDistance = new Vector2(1f, -1f);
+            }
         }
 
         bool reviewingTop = lastTarget == ScanTarget.Discard && lastState == ScanState.Reviewing;
@@ -181,6 +220,18 @@ public class CardHandView : MonoBehaviour
         }
         discardTitle.text = Local("Top card", "桌顶牌") + "\n" +
             (reviewingTop ? Local("Review", "待确认") : top != null ? Local("Saved", "已保存") : Local("Not saved", "未保存"));
+        if (discardMeta != null)
+        {
+            var meta = new StringBuilder();
+            meta.Append(top == null ? Local("No card", "无牌") :
+                string.Equals(top.Color, "Wild", System.StringComparison.OrdinalIgnoreCase)
+                    ? top.Value : top.Color + " " + top.Value);
+            if (!reviewingTop && owner.session != null && !string.IsNullOrEmpty(owner.session.ActiveColor))
+                meta.Append('\n').Append(Local("Active colour: ", "生效颜色：")).Append(owner.session.ActiveColor);
+            meta.Append('\n').Append(reviewingTop ? Local("Review", "待确认") :
+                top != null ? Local("Confirmed", "已确认") : Local("Not scanned", "未扫描"));
+            discardMeta.text = meta.ToString();
+        }
         if (top != null)
         {
             CardColor activeColour = !reviewingTop && CardFaces.IsWild(CardFaces.ParseValue(top.Value))
@@ -263,18 +314,18 @@ public class CardHandView : MonoBehaviour
     /// <summary>The learner-facing panel; photo/debug pages stay one tap away.</summary>
     void BuildDebugRow()
     {
-        photoToggle = SmallButton("PhotoToggle", new Vector2(84f, 28f), new Vector2(-260f, -280f));
+        photoToggle = SmallButton("PhotoToggle", new Vector2(84f, 28f), new Vector2(-210f, -330f));
         photoToggleLabel = Text(photoToggle.transform, "Label", new Vector2(80f, 26f), Vector2.zero, 13f);
         photoToggleLabel.alignment = TextAlignmentOptions.Center;
         photoToggleLabel.text = Local("Debug", "调试");
         photoToggle.onClick.AddListener(() => SetPhotoPanelVisible(!photoRoot.gameObject.activeSelf));
 
-        cropChip = Text(root, "CropChip", new Vector2(170f, 28f), new Vector2(-120f, -280f), 13f);
+        cropChip = Text(root, "CropChip", new Vector2(170f, 28f), new Vector2(-95f, -330f), 13f);
         cropChip.alignment = TextAlignmentOptions.Left;
         cropChip.color = new Color32(154, 165, 185, 255);
         cropChip.text = "Crop: Auto";
 
-        photoChip = Text(root, "PhotoChip", new Vector2(80f, 28f), new Vector2(55f, -280f), 13f);
+        photoChip = Text(root, "PhotoChip", new Vector2(80f, 28f), new Vector2(45f, -330f), 13f);
         photoChip.alignment = TextAlignmentOptions.Left;
         photoChip.color = new Color32(154, 165, 185, 255);
         photoChip.text = Local("Photo", "照片");

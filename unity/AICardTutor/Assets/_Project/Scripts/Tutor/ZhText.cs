@@ -26,7 +26,7 @@ public static class ZhText
         { "scan.showDiscard", "请将桌顶牌放到摄像头视野内。" },
         { "scan.autoHand", "自动 {seconds}s · 停留 0.5s" },
         { "scan.holding", "正在停留… {seconds}s" },
-        { "scan.locked", "已锁定 · 停留 0.5s 恢复" },
+        { "scan.locked", "已锁定 · 长按 0.5s" },
         { "scan.handScanning", "正在扫描手牌…" },
         { "why.sameValue",
           "{card} 能出：和桌顶的 {top} 同为 {value}" },
