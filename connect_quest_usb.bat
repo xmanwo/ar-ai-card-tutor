@@ -4,9 +4,15 @@ rem An explicit ADB_EXE takes priority, then SDK environment variables, PATH and
 if not defined ADB_EXE if defined ANDROID_SDK_ROOT if exist "%ANDROID_SDK_ROOT%\platform-tools\adb.exe" set "ADB_EXE=%ANDROID_SDK_ROOT%\platform-tools\adb.exe"
 if not defined ADB_EXE if defined ANDROID_HOME if exist "%ANDROID_HOME%\platform-tools\adb.exe" set "ADB_EXE=%ANDROID_HOME%\platform-tools\adb.exe"
 if not defined ADB_EXE for /f "delims=" %%A in ('where adb 2^>nul') do if not defined ADB_EXE set "ADB_EXE=%%A"
-for %%A in ("F:\UNITY\Hub\Editor\6000.3.25f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe" "%ProgramFiles%\Unity\Hub\Editor\6000.3.25f1\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe") do if not defined ADB_EXE if exist "%%~A" set "ADB_EXE=%%~A"
+rem Any installed Unity 6.3 editor is valid, not only the preferred 6000.3.25f1 patch.
+if not defined ADB_EXE for %%R in ("%ProgramFiles%\Unity\Hub\Editor" "D:\Unity" "C:\Unity" "E:\Unity" "F:\UNITY\Hub\Editor") do (
+    if not defined ADB_EXE for /d %%V in ("%%~R\6000.3.*") do (
+        if not defined ADB_EXE if exist "%%~V\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe" set "ADB_EXE=%%~V\Editor\Data\PlaybackEngines\AndroidPlayer\SDK\platform-tools\adb.exe"
+    )
+)
 if not defined ADB_EXE (
-    echo ADB not found. Set ADB_EXE to your Unity Android SDK platform-tools\adb.exe.
+    echo ADB not found. Install Unity's Android Build Support, or set ADB_EXE to
+    echo the platform-tools\adb.exe inside your Unity editor folder.
     pause
     exit /b 1
 )

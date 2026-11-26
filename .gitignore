@@ -87,6 +87,7 @@ desktop.ini
 
 # ---- Local debug output (never commit) --------------------------------
 .workbuddy-ai/
+.workbuddy/
 .debug/
 /training_runs/
 /output/

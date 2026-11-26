@@ -92,7 +92,7 @@ public sealed class HandScanProgress : MonoBehaviour, IPointerEnterHandler, IPoi
             return;
         }
 
-        label.fontSize = 15f;
+        label.fontSize = 14f;
         if (Holding)
             Show("scan.holding", hold / HoldSeconds, Cyan, HoldSeconds - hold);
         else if (locked && panel.HandScanCanRun)

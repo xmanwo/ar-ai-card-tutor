@@ -76,7 +76,7 @@ public static class EnText
         { "scan.showDiscard", "Show the top card to the camera." },
         { "scan.autoHand", "Auto {seconds}s · Hold 0.5s" },
         { "scan.holding", "Holding... {seconds}s" },
-        { "scan.locked", "LOCKED · Hold 0.5s to Resume" },
+        { "scan.locked", "LOCKED · Hold 0.5s" },
         { "scan.handScanning", "Scanning hand..." },
         { "scan.detectedOne", "1 card detected" },
         { "scan.detectedMany", "{n} cards detected" },
