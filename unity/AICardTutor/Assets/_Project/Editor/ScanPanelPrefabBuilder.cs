@@ -314,6 +314,8 @@ public static class ScanPanelPrefabBuilder
             panel.savedStateText.enabled = false;
         }
 
+        if (Mathf.Approximately(panel.handScanInterval, 4.5f))
+            panel.handScanInterval = ScanPanel.DefaultHandScanInterval;
         panel.ApplyScanControlsLayout();
         var scanProgressLabel = panel.rescanButton != null
             ? panel.rescanButton.GetComponentInChildren<TMP_Text>() : null;
