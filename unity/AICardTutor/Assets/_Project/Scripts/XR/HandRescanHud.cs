@@ -9,7 +9,7 @@ using UnityEngine.XR.Interaction.Toolkit.Interactors.Visuals;
 using UnityEngine.XR.Interaction.Toolkit.UI.BodyUI;
 
 /// <summary>
-/// Controller-free scanning controls. The left Rescan HUD and ScanPanel buttons share one
+/// Controller-free controls. The HUD and ScanPanel buttons share one
 /// index-finger ray and dwell timer.
 ///
 /// This deliberately does NOT recognise gestures. It only asks "where is the fingertip pointing",
@@ -73,6 +73,8 @@ public class HandRescanHud : MonoBehaviour
     XRHandSubsystem handSubsystem;
     RectTransform canvasRect;
     Button button;
+    Button placementButton;
+    TMP_Text placementLabel;
     Image buttonImage;
     Image ringImage;
     Image cursorImage;
@@ -81,6 +83,7 @@ public class HandRescanHud : MonoBehaviour
     float dwell;
     Button[] panelButtons = new Button[0];
     Button hoveredButton;
+    internal Button AimedButton { get; private set; }
     HandScanProgress hoveredHandProgress;
     bool firedForHover;
     bool hasSmoothed;
@@ -118,8 +121,11 @@ public class HandRescanHud : MonoBehaviour
         StartCoroutine(SuppressHandVisualsDelayed());
         StartCoroutine(KeepHandMenuHidden());
 
+        var cam = ScanPanel.FindHeadCamera();
         if (!PlaceAbovePhotoPanel())
-            AttachToCamera();
+            AttachToCamera(cam);
+        if (cam != null && scanPanel != null && scanPanel.attachToCamera)
+            BuildPlacementButton(cam);
 
         FindHandSubsystem();
         LogSubsystemReport();
@@ -277,6 +283,8 @@ public class HandRescanHud : MonoBehaviour
     {
         if (button != null)
             button.onClick.RemoveListener(OnClick);
+        if (placementButton != null)
+            Destroy(placementButton.transform.parent.gameObject);
     }
 
     void OnDisable()
@@ -372,6 +380,51 @@ public class HandRescanHud : MonoBehaviour
             BuildRayLine();
     }
 
+    void BuildPlacementButton(Camera cam)
+    {
+        const float unitsToMetres = 0.0007f;
+        var root = new GameObject("UI Placement", typeof(RectTransform), typeof(Canvas));
+        var canvas = root.GetComponent<Canvas>();
+        canvas.renderMode = RenderMode.WorldSpace;
+        canvas.worldCamera = cam;
+        canvas.sortingOrder = 201;
+        var rect = (RectTransform)root.transform;
+        rect.SetParent(cam.transform, false);
+        rect.localPosition = new Vector3(0f, -0.24f, 0.8f);
+        var rigScale = cam.transform.lossyScale;
+        rect.localScale = new Vector3(unitsToMetres / Safe(rigScale.x),
+            unitsToMetres / Safe(rigScale.y), unitsToMetres / Safe(rigScale.z));
+        rect.sizeDelta = new Vector2(220f, 70f);
+
+        var target = NewRect("PlacementToggle", rect, 220f);
+        target.sizeDelta = rect.sizeDelta;
+        var background = target.gameObject.AddComponent<Image>();
+        background.color = new Color32(64, 88, 108, 255);
+        var border = target.gameObject.AddComponent<Outline>();
+        border.effectColor = new Color32(157, 178, 192, 255);
+        border.effectDistance = new Vector2(2f, -2f);
+        placementButton = target.gameObject.AddComponent<Button>();
+        placementButton.targetGraphic = background;
+        placementButton.onClick.AddListener(TogglePanelPlacement);
+
+        var label = NewRect("Label", target, 208f);
+        label.sizeDelta = new Vector2(208f, 64f);
+        placementLabel = label.gameObject.AddComponent<TextMeshProUGUI>();
+        placementLabel.text = scanPanel.PlacementLocked ? "Move UI" : "Lock UI";
+        placementLabel.fontSize = 34f;
+        placementLabel.fontStyle = FontStyles.Bold;
+        placementLabel.color = Paper;
+        placementLabel.alignment = TextAlignmentOptions.Center;
+        placementLabel.overflowMode = TextOverflowModes.Ellipsis;
+        placementLabel.raycastTarget = false;
+    }
+
+    void TogglePanelPlacement()
+    {
+        if (scanPanel != null && scanPanel.TryTogglePlacementLock())
+            placementLabel.text = scanPanel.PlacementLocked ? "Move UI" : "Lock UI";
+    }
+
     void BuildRayLine()
     {
         var lineGo = new GameObject("AimRay");
@@ -429,14 +482,8 @@ public class HandRescanHud : MonoBehaviour
         return true;
     }
 
-    void AttachToCamera()
+    void AttachToCamera(Camera cam)
     {
-        var cameraManager = FindFirstObjectByType<UnityEngine.XR.ARFoundation.ARCameraManager>();
-        var cam = cameraManager != null ? cameraManager.GetComponentInChildren<Camera>() : null;
-
-        if (cam == null)
-            cam = Camera.main;
-
         if (cam == null)
         {
             Debug.LogWarning("[HandHud] no head camera found; leaving the HUD where it is.");
@@ -694,6 +741,7 @@ public class HandRescanHud : MonoBehaviour
         float nearest = maxRayDistance;
         worldPoint = default;
         CheckButton(button, origin, direction, ref closest, ref nearest, ref worldPoint);
+        CheckButton(placementButton, origin, direction, ref closest, ref nearest, ref worldPoint);
         foreach (var candidate in panelButtons)
             if (candidate != button)
                 CheckButton(candidate, origin, direction, ref closest, ref nearest, ref worldPoint);
@@ -762,6 +810,7 @@ public class HandRescanHud : MonoBehaviour
     void ShowAim(bool visible, Button target = null, Vector3 origin = default, Vector3 direction = default,
                  Vector3 worldPoint = default)
     {
+        AimedButton = visible ? target : null;
         if (visible && target != null)
         {
             var rect = (RectTransform)target.transform;

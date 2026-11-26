@@ -51,7 +51,7 @@ public class CardHandView : MonoBehaviour
         root = NewRect("CardFaces", transform, new Vector2(ScanPanel.PanelWidth, ScanPanel.PanelHeight),
             Vector2.zero);
         handRow = NewRect("HandRow", root, new Vector2(470, 150), new Vector2(0, -24));
-        discardSlot = NewRect("DiscardSlot", root, new Vector2(96, 146), new Vector2(-180, 210));
+        discardSlot = NewRect("DiscardSlot", root, new Vector2(96, 146), new Vector2(-170, 210));
         handTitle = Text(root, "HandTitle", new Vector2(470, 28), new Vector2(0, 92), 18);
         discardTitle = Text(root, "TopTitle", new Vector2(170, 40), new Vector2(-180, 282), 16);
         discardTitle.alignment = TextAlignmentOptions.Center;
@@ -69,7 +69,7 @@ public class CardHandView : MonoBehaviour
         discardLabel.color = new Color32(127, 138, 159, 255);
         discardLabel.text = Local("DISCARD PILE", "弃牌堆");
 
-        discardMeta = Text(root, "DiscardMeta", new Vector2(205, 90), new Vector2(-25, 242), 17);
+        discardMeta = Text(root, "DiscardMeta", new Vector2(205, 90), new Vector2(7, 242), 17);
         discardMeta.alignment = TextAlignmentOptions.TopLeft;
         discardMeta.color = new Color32(223, 229, 239, 255);
 
@@ -441,15 +441,19 @@ public class CardHandView : MonoBehaviour
 
     void ShowActiveWildColour(CardColor colour, Color tint)
     {
-        var size = new Vector2(120f, 24f);
+        var size = new Vector2(156f, 24f);
         var rect = NewRect("ActiveWildColour", discardSlot, size, new Vector2(0f, -88f));
         var background = rect.gameObject.AddComponent<Image>();
         background.color = tint;
         background.raycastTarget = false;
-        var label = Text(rect, "Label", size, Vector2.zero, 15f);
+        var label = Text(rect, "Label", new Vector2(size.x - 12f, size.y), Vector2.zero, 15f);
         string colourName = Loc.T(CardFaces.ColorKey(colour)).ToUpperInvariant();
         label.text = new TextRef("tutor.activeColourLabel", new TextVar("colour", colourName)).Resolve();
         label.alignment = TextAlignmentOptions.Center;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 13f;
+        label.fontSizeMax = 15f;
         label.color = colour == CardColor.Yellow ? new Color32(16, 16, 16, 255) : Color.white;
     }
 

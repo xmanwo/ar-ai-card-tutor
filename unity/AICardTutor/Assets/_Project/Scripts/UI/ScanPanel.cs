@@ -51,7 +51,8 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     [Header("Automatic Hand Scan")]
     public bool automaticHandScan = true;
-    [Min(.1f)] public float handScanInterval = 4.5f;
+    public const float DefaultHandScanInterval = 5f;
+    [Min(.1f)] public float handScanInterval = DefaultHandScanInterval;
     HandScanProgress handProgress;
     float handRemaining;
     int handClockResetFrame = -1;
@@ -144,8 +145,9 @@ public class ScanPanel : MonoBehaviour, IScanView
     public const float LeftPanelOffsetX = 0.34f;
 
     /// <summary>The coach panel, measured in the table panel's local UI units.</summary>
-    public const float RightPanelX = -970f;
-    public const float RightPanelWidth = 460f;
+    public const float RightPanelX = -945f;
+    public const float RightPanelWidth = 420f;
+    internal const float CoachContentWidth = RightPanelWidth - 50f;
 
     public const float ContentWidth = 450f;
     public const float CardRowOffset = 0f;
@@ -225,11 +227,10 @@ public class ScanPanel : MonoBehaviour, IScanView
         bool runtime = Application.isPlaying;
         float legalX = runtime ? RightPanelX : 60f;
         float legalY = runtime ? 190f : 17f;
-        float legalWidth = runtime ? 410f : 540f;
 
         // The local-rule headline sits at the top of the right coach rail.
         Place(tutorPanel.legalText != null ? tutorPanel.legalText.rectTransform : null,
-            legalWidth, 32f, legalX, legalY);
+            CoachContentWidth, 32f, legalX, legalY);
         if (tutorPanel.legalText != null)
         {
             tutorPanel.legalText.fontSize = runtime ? 20f : 22f;
@@ -238,19 +239,19 @@ public class ScanPanel : MonoBehaviour, IScanView
         }
         if (tutorPanel.reasonText != null)
         {
-            tutorPanel.reasonText.fontSize = runtime ? 18f : 20f;
+            tutorPanel.reasonText.fontSize = 20f;
             tutorPanel.reasonText.overflowMode = TextOverflowModes.Ellipsis;
         }
         if (tutorPanel.blockedText != null)
         {
-            tutorPanel.blockedText.fontSize = runtime ? 17f : 20f;
+            tutorPanel.blockedText.fontSize = runtime ? 19f : 20f;
             tutorPanel.blockedText.overflowMode = TextOverflowModes.Ellipsis;
             tutorPanel.blockedText.color = new Color32(209, 213, 219, 255);
         }
         if (!runtime)
         {
-            Place(tutorPanel.reasonText?.rectTransform, 410f, 50f, 0f, -76f);
-            Place(tutorPanel.blockedText?.rectTransform, 410f, 50f, 0f, -132f);
+            Place(tutorPanel.reasonText?.rectTransform, CoachContentWidth, 50f, 0f, -76f);
+            Place(tutorPanel.blockedText?.rectTransform, CoachContentWidth, 50f, 0f, -132f);
         }
     }
 
@@ -259,7 +260,6 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (panel == null) return;
         const float top = 160f;
         const float bottom = 4f;
-        const float width = 410f;
         float reason = RuleTextHeight(panel.reasonText);
         float blocked = RuleTextHeight(panel.blockedText);
         float gap = reason > 0f && blocked > 0f ? 6f : 0f;
@@ -267,13 +267,13 @@ public class ScanPanel : MonoBehaviour, IScanView
         float reasonHeight = Mathf.Min(reason, available - Mathf.Min(blocked, available * .5f));
         float blockedHeight = Mathf.Min(blocked, available - reasonHeight);
         float y = top - (available - reasonHeight - blockedHeight) * .55f;
-        Place(panel.reasonText?.rectTransform, width, reasonHeight, RightPanelX, y - reasonHeight * .5f);
+        Place(panel.reasonText?.rectTransform, CoachContentWidth, reasonHeight, RightPanelX, y - reasonHeight * .5f);
         y -= reasonHeight + gap;
-        Place(panel.blockedText?.rectTransform, width, blockedHeight, RightPanelX, y - blockedHeight * .5f);
+        Place(panel.blockedText?.rectTransform, CoachContentWidth, blockedHeight, RightPanelX, y - blockedHeight * .5f);
     }
 
     static float RuleTextHeight(TMP_Text line) => line == null || string.IsNullOrEmpty(line.text)
-        ? 0f : Mathf.Ceil(line.GetPreferredValues(line.text, 410f, 0f).y) + 3f;
+        ? 0f : Mathf.Ceil(line.GetPreferredValues(line.text, CoachContentWidth, 0f).y) + 3f;
 
     internal static void ApplyPhotoLayout(RectTransform rect, bool debug)
     {
@@ -347,17 +347,19 @@ public class ScanPanel : MonoBehaviour, IScanView
             wildColorText.overflowMode = TextOverflowModes.Ellipsis;
         }
 
+        const float buttonHeight = 52f;
+        const float rowOffset = 33f;
         if (scanButton != null && scanButton.transform.parent is RectTransform row)
         {
             row.anchorMin = row.anchorMax = row.pivot = new Vector2(0.5f, 0.5f);
             // Two rows of two: the rail is too narrow for a single four-button strip.
-            Place(row, 470f, 116f, 0f, -252f);
+            Place(row, 470f, 2f * rowOffset + buttonHeight + 4f, 0f, -252f);
         }
 
-        PlaceButton(scanDiscardButton, 226f, 52f, -119f, 30f);
-        PlaceButton(scanButton, 226f, 52f, 119f, 30f);
-        PlaceButton(rescanButton, 226f, 52f, -119f, -30f);
-        PlaceButton(confirmButton, 226f, 52f, 119f, -30f);
+        PlaceButton(scanDiscardButton, 226f, buttonHeight, -119f, rowOffset);
+        PlaceButton(scanButton, 226f, buttonHeight, 119f, rowOffset);
+        PlaceButton(rescanButton, 226f, buttonHeight, -119f, -rowOffset);
+        PlaceButton(confirmButton, 226f, buttonHeight, 119f, -rowOffset);
 
         SetButtonLabel(scanButton, "Scan hand", "扫描手牌");
         SetButtonLabel(scanDiscardButton, "Scan discard", "扫描桌顶");
@@ -415,20 +417,52 @@ public class ScanPanel : MonoBehaviour, IScanView
         RefreshSavedState();
     }
 
-    void AttachToCamera()
+    Camera headCamera;
+    internal bool PlacementLocked { get; private set; }
+
+    internal static Camera FindHeadCamera()
     {
         var cameraManager = FindFirstObjectByType<UnityEngine.XR.ARFoundation.ARCameraManager>();
         var cam = cameraManager != null ? cameraManager.GetComponentInChildren<Camera>() : null;
+        return cam != null ? cam : Camera.main;
+    }
 
-        if (cam == null)
-            cam = Camera.main;
-
-        if (cam == null)
+    void AttachToCamera()
+    {
+        headCamera = FindHeadCamera();
+        if (headCamera == null)
         {
             Debug.LogWarning("[ScanPanel] no head camera found; leaving the panel where it is.");
             return;
         }
 
+        FollowHeadCamera();
+    }
+
+    internal bool TryTogglePlacementLock()
+    {
+        if (headCamera == null)
+            return false;
+
+        if (PlacementLocked)
+            FollowHeadCamera();
+        else
+        {
+            // A World Space canvas can recalculate its RectTransform on becoming a scene root.
+            var position = transform.position;
+            var rotation = transform.rotation;
+            transform.SetParent(null, true);
+            transform.SetPositionAndRotation(position, rotation);
+        }
+
+        PlacementLocked = !PlacementLocked;
+        Debug.Log($"[ScanPanel] UI placement: {(PlacementLocked ? "locked" : "following")}");
+        return true;
+    }
+
+    void FollowHeadCamera()
+    {
+        var cam = headCamera;
         // Tracked-device raycasts must use the same head camera as the displayed panel.
         GetComponent<Canvas>().worldCamera = cam;
         transform.SetParent(cam.transform, false);
