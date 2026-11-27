@@ -8,6 +8,10 @@ public static class UnoCardArt
     public static Sprite Get(string color, string value)
     {
         string key = UnoCardKey.For(color, value);
+        return GetByKey(key);
+    }
+    public static Sprite GetByKey(string key)
+    {
         if (key == null) return null;
         if (!Cache.TryGetValue(key, out Sprite sprite))
         {

@@ -38,6 +38,8 @@ public class ScanPanel : MonoBehaviour, IScanView
     string pendingWildColor;
     ScanState lastRenderedState = ScanState.Seeking;
     CardHandView cardFaces;
+    readonly Dictionary<GameObject,bool> liveHiddenObjects=new Dictionary<GameObject,bool>();
+    bool livePresentation;
 
     [Header("Display")]
     public RawImage frameImage;
@@ -314,7 +316,7 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     void OnConfirm()
     {
-        if (client == null || client.State != ScanState.Reviewing)
+        if (client == null || client.LiveTracking || client.State != ScanState.Reviewing)
             return;
 
         if (session == null)
@@ -344,6 +346,8 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     public void SelectWildColor(string color)
     {
+        if(client!=null && client.LiveTracking)
+        {if(client.LiveNeedsWildColor && GameSessionState.IsValidColor(color))client.TryCommitLivePlay(color);return;}
         if (client == null || !NeedsWildColor(client.State, client.Cards) ||
             !GameSessionState.IsValidColor(color))
             return;
@@ -357,6 +361,7 @@ public class ScanPanel : MonoBehaviour, IScanView
 
     bool NeedsWildColor(ScanState state, IReadOnlyList<CardEntry> cards)
     {
+        if(client!=null && client.LiveTracking)return client.LiveNeedsWildColor;
         return state == ScanState.Reviewing && ActiveTarget == ScanTarget.Discard &&
             cards != null && cards.Count == 1 && GameSessionState.IsWild(cards[0]);
     }
@@ -375,6 +380,7 @@ public class ScanPanel : MonoBehaviour, IScanView
         bool colourChosen = !needsColour || !string.IsNullOrEmpty(pendingWildColor);
 
         confirmButton.interactable =
+            client!=null && !client.LiveTracking && !client.IsBusy &&
             state == ScanState.Reviewing && cards != null && cards.Count > 0 && colourChosen;
     }
 
@@ -382,15 +388,20 @@ public class ScanPanel : MonoBehaviour, IScanView
     {
         bool show = NeedsWildColor(state, cards);
         if (wildColorControls != null)
+        {
             wildColorControls.SetActive(show);
+            var rect=wildColorControls.transform as RectTransform;
+            if(rect!=null)rect.anchoredPosition=client!=null && client.LiveTracking ? new Vector2(0,-10) : new Vector2(190,143);
+        }
 
         // The wheel sits in the card list's column, so the list steps aside while it is up.
         // Two blocks in one rectangle is exactly the overlap we keep out of the panel.
-        if (listText != null && listText.enabled == show)
-            listText.enabled = !show;
+        if (listText != null)
+            listText.enabled = !show && (client==null || !client.LiveTracking) &&
+                (cardFaces==null || !cardFaces.IsAvailable);
 
         if (wildColorText != null)
-            wildColorText.text = string.IsNullOrEmpty(pendingWildColor)
+            wildColorText.text = client!=null && client.LiveTracking || string.IsNullOrEmpty(pendingWildColor)
                 ? "Choose\ncolour" : $"Selected:\n{pendingWildColor}";
     }
 
@@ -424,14 +435,7 @@ public class ScanPanel : MonoBehaviour, IScanView
         }
 
         // Scan means "look again now", so it stays pressable in Reviewing as well.
-        if (scanButton != null)
-            scanButton.interactable = state != ScanState.Scanning;
-
-        if (scanDiscardButton != null)
-            scanDiscardButton.interactable = state != ScanState.Scanning;
-
-        if (rescanButton != null)
-            rescanButton.interactable = state != ScanState.Scanning;
+        RefreshScanAvailability();
 
         // Confirm needs at least one card, and a scanned Wild needs its colour chosen first.
         RefreshConfirmButton(state, cards);
@@ -447,19 +451,50 @@ public class ScanPanel : MonoBehaviour, IScanView
         if (client == null)
             return;
 
-        if (client.State == ScanState.Scanning)
+        RefreshLivePresentation();
+
+        if (client.LiveTracking)
+        {
+            if (statusText!=null) statusText.text="Live · Repeating Scan Hand · Two missing scans + UNO rules = Played";
+        }
+        else if (client.State == ScanState.Scanning)
         {
             if (statusText != null)
                 statusText.text = $"Recognising {TargetName}... {client.ScanElapsedSeconds:F1}s";
-            // Only the photo updates live; card faces still wait for the existing freeze rules.
-            var capture = client.capture;
-            if (frameImage != null && capture != null && client.LastCapturedFrameId > 0)
-            {
-                frameImage.texture = capture.LastTexture;
-                frameImage.enabled = capture.LastTexture != null;
-            }
         }
+        RefreshScanAvailability();
+        RefreshConfirmButton(client.State,client.Cards);
+        RefreshWildColorControls(client.State,client.Cards);
         if (cardFaces != null && cardFaces.IsAvailable) cardFaces.RefreshPhotoPanel();
+    }
+
+    void RefreshScanAvailability()
+    {
+        bool available=client!=null && !client.LiveTracking && !client.IsBusy && client.State!=ScanState.Scanning;
+        if (scanButton!=null) scanButton.interactable=available;
+        if (scanDiscardButton!=null) scanDiscardButton.interactable=available;
+        if (rescanButton!=null) rescanButton.interactable=available;
+    }
+
+    void RefreshLivePresentation()
+    {
+        bool live=client!=null && client.LiveTracking;
+        if(live==livePresentation)return;
+        livePresentation=live;
+        if(live)
+        {
+            var texts=new List<TMP_Text>{savedStateText,listText};
+            var tutorView=GetComponent<TutorPanel>();
+            if(tutorView!=null){texts.Add(tutorView.legalText);texts.Add(tutorView.reasonText);texts.Add(tutorView.blockedText);}
+            foreach(var text in texts)
+                if(text!=null && text.gameObject!=gameObject && !liveHiddenObjects.ContainsKey(text.gameObject))
+                {liveHiddenObjects.Add(text.gameObject,text.gameObject.activeSelf);text.gameObject.SetActive(false);}
+        }
+        else
+        {
+            foreach(var item in liveHiddenObjects)if(item.Key!=null)item.Key.SetActive(item.Value);
+            liveHiddenObjects.Clear();
+        }
     }
 
     void RefreshSavedState()

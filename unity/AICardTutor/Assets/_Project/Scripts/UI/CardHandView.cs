@@ -14,6 +14,9 @@ public class CardHandView : MonoBehaviour
     TMP_Text photoTitle, photoPlaceholder, cropStatus, cropModeText;
     Button cropMode;
     ScanCropOverlay cropOverlay;
+    TrackingBoxesOverlay originalBoxes, focusedBoxes;
+    LiveTrackingPanel livePanel;
+    Button liveButton;
     RawImage focusedPhoto;
     TMP_Text originalLabel, focusedLabel, focusedPlaceholder;
     Button previous, next;
@@ -54,6 +57,7 @@ public class CardHandView : MonoBehaviour
         previous = PageButton("PreviousCards", "<", 260, () => { page--; Draw(); });
         next = PageButton("NextCards", ">", 310, () => { page++; Draw(); });
         BuildPhotoPanel();
+        livePanel=new LiveTrackingPanel(transform,font);
         if (owner.wildColorControls != null)
             owner.wildColorControls.transform.SetAsLastSibling();
         boundTutor = owner.tutor;
@@ -167,7 +171,12 @@ public class CardHandView : MonoBehaviour
         var background = photoRoot.gameObject.AddComponent<Image>();
         background.color = new Color(.045f, .07f, .10f, .96f);
         background.raycastTarget = false;
-        photoTitle = Text(photoRoot, "PhotoTitle", new Vector2(190, 34), new Vector2(-75, 234), 21);
+        var liveRect=NewRect("ToggleLiveTracking",photoRoot,new Vector2(190,30),new Vector2(-75,234));
+        var liveImage=liveRect.gameObject.AddComponent<Image>(); liveImage.color=new Color(.12f,.28f,.4f);
+        liveButton=liveRect.gameObject.AddComponent<Button>(); liveButton.targetGraphic=liveImage;
+        liveButton.onClick.AddListener(()=>{ if (owner.client!=null) owner.client.ToggleLiveTracking(owner.session,owner.tutor); });
+        photoTitle = Text(liveRect, "PhotoTitle", new Vector2(186,28), Vector2.zero, 18);
+        photoTitle.alignment=TextAlignmentOptions.Center;
         originalLabel = Text(photoRoot, "OriginalLabel", new Vector2(350, 22), new Vector2(0, 200), 16);
         originalLabel.alignment = TextAlignmentOptions.Center;
         originalLabel.text = Local("Original photo", "原始照片");
@@ -177,6 +186,7 @@ public class CardHandView : MonoBehaviour
         focusedPhoto = focusedRect.gameObject.AddComponent<RawImage>();
         focusedPhoto.raycastTarget = false;
         focusedPhoto.enabled = false;
+        focusedBoxes=focusedPhoto.gameObject.AddComponent<TrackingBoxesOverlay>(); focusedBoxes.Initialize(font);
         focusedPlaceholder = Text(photoRoot, "FocusPlaceholder", new Vector2(340, 205), new Vector2(0, -100), 20);
         focusedPlaceholder.alignment = TextAlignmentOptions.Center;
         cropStatus = Text(photoRoot, "CropStatus", new Vector2(370, 44), new Vector2(0, -235), 15);
@@ -205,34 +215,42 @@ public class CardHandView : MonoBehaviour
         owner.frameImage.enabled = owner.frameImage.texture != null;
         cropOverlay = owner.frameImage.GetComponent<ScanCropOverlay>();
         if (cropOverlay == null) cropOverlay = owner.frameImage.gameObject.AddComponent<ScanCropOverlay>();
+        originalBoxes=owner.frameImage.gameObject.AddComponent<TrackingBoxesOverlay>(); originalBoxes.Initialize(font);
     }
 
     public void RefreshPhotoPanel()
     {
         if (photoTitle == null || owner.frameImage == null) return;
-        bool visible = owner.frameImage.enabled && owner.frameImage.texture != null;
-        string pile = lastTarget == ScanTarget.Hand ? Local("Hand", "手牌") : Local("Discard", "桌顶");
-        photoTitle.text = pile + (lastState == ScanState.Scanning ? Local(" · Live", " · 实时") : Local(" · Photo", " · 照片"));
-        var capture = owner.client != null ? owner.client.capture : null;
-        bool focused = visible && lastTarget == ScanTarget.Hand && capture != null &&
-            capture.LastScanCropped && capture.LastRecognitionTexture != null &&
-            owner.frameImage.texture == capture.LastTexture;
+        var client=owner.client;
+        bool live=client!=null && client.LiveTracking;
+        var frame=client!=null ? client.DisplayPreview : null;
+        bool visible=frame!=null && frame.Original!=null;
+        owner.frameImage.texture=visible ? frame.Original : null;
+        owner.frameImage.enabled=visible;
+        ScanTarget visualTarget=frame!=null ? frame.Target : live ? ScanTarget.Hand : lastTarget;
+        string pile = visualTarget == ScanTarget.Hand ? Local("Hand", "手牌") : Local("Discard", "桌顶");
+        photoTitle.text=live ? Local("Stop Live", "停止实时跟踪") : client!=null && client.IsBusy && client.State!=ScanState.Scanning
+            ? Local("Finishing request...", "正在结束请求……") : Local("Start Live", "开始实时跟踪");
+        if (liveButton!=null) liveButton.interactable=client!=null && client.CanToggleLive;
+        if (originalLabel!=null) originalLabel.text=pile+Local(" · Original photo", " · 原始照片");
+        var capture = client != null ? client.capture : null;
+        bool focused = visible && visualTarget == ScanTarget.Hand && frame.Cropped && frame.Recognition!=null;
         if (focusedPhoto != null)
         {
             focusedPhoto.enabled = focused;
-            focusedPhoto.texture = focused ? capture.LastRecognitionTexture : null;
+            focusedPhoto.texture = focused ? frame.Recognition : null;
             if (focused) FitPhoto(focusedPhoto, 350, 210);
         }
         if (focusedLabel != null)
         {
-            focusedLabel.text = lastTarget == ScanTarget.Discard ? Local("Full-frame recognition", "全图识别") :
-                focused ? Local("Hand crop · Recognition input", "手牌裁剪 · 实际识别区域") : Local("Hand focus · Waiting", "手牌放大 · 等待定位");
+            focusedLabel.text = visualTarget == ScanTarget.Discard ? Local("Full-frame recognition", "全图识别") :
+                focused ? Local("Hand crop · Scan Hand input", "手牌裁剪 · Scan Hand 识别输入") : Local("Hand focus · Waiting", "手牌放大 · 等待定位");
             focusedLabel.color = focused ? ScanCropOverlay.Focused : ScanCropOverlay.FullFrame;
         }
         if (focusedPlaceholder != null)
         {
             focusedPlaceholder.gameObject.SetActive(!focused);
-            focusedPlaceholder.text = lastTarget == ScanTarget.Discard
+            focusedPlaceholder.text = visualTarget == ScanTarget.Discard
                 ? Local("Discard scanning uses the original photo.", "桌顶扫描使用原始照片。")
                 : visible ? Local("No focused crop in this frame.\nRecognition used the original photo.", "本帧尚未裁剪。\n识别使用上方原始照片。")
                 : Local("The focused hand image appears here when a crop is available.", "定位到手牌后，在这里显示放大识别图。");
@@ -243,12 +261,21 @@ public class CardHandView : MonoBehaviour
             cropMode.interactable = lastState != ScanState.Scanning && capture != null && capture.handRoi != null;
         if (cropStatus != null)
         {
-            cropStatus.text = visible && capture != null ? capture.LastCropNote : Local("Green box = recognised area", "绿色框为识别区域");
-            cropStatus.color = capture != null && capture.LastScanCropped ? ScanCropOverlay.Focused : ScanCropOverlay.FullFrame;
+            cropStatus.text = visible ? frame.Note : Local("Green box = recognised area", "绿色框为识别区域");
+            cropStatus.color = visible && frame.Cropped ? ScanCropOverlay.Focused : ScanCropOverlay.FullFrame;
         }
-        if (cropOverlay != null) cropOverlay.Show(capture, owner.frameImage);
+        if (cropOverlay != null) cropOverlay.Show(frame, owner.frameImage);
+        if (originalBoxes!=null)
+            originalBoxes.Show(client!=null ? client.DisplayTracks : null,null,false,
+                visible ? new HandCropGeometry.Crop(0,0,frame.Width,frame.Height) : default,
+                visible && client!=null && client.CanShowTrackingBoxes);
+        if (focusedBoxes!=null)
+            focusedBoxes.Show(client!=null ? client.DisplayTracks : null,null,false,
+                focused ? frame.Crop : default,focused && client!=null && client.CanShowTrackingBoxes);
+        if (root!=null) root.gameObject.SetActive(!live);
+        if (livePanel!=null) livePanel.Refresh(client);
         photoPlaceholder.gameObject.SetActive(!visible);
-        photoPlaceholder.text = lastState == ScanState.Scanning
+        photoPlaceholder.text = live || lastState == ScanState.Scanning
             ? Local("Recognising...", "正在识别……")
             : Local("The captured photo appears here after a scan.", "扫描结束后在这里显示识别照片。");
         if (visible) FitPhoto(owner.frameImage, 350, 140);

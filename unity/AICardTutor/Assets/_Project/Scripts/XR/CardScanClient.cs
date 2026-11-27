@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Text;
@@ -99,6 +100,51 @@ public class CardScanClient : MonoBehaviour
     public float LastLatencyMs { get; private set; }
     public string LastNote { get; private set; }
     public int LastCapturedFrameId { get; private set; }
+    public bool LiveTracking { get; private set; }
+    public string LiveError { get; private set; }
+    public StableHandEvidence.Snapshot LiveEvidence => handEvidence.Current;
+    public float LiveRetrySeconds => liveRetry.Remaining(Time.unscaledTime);
+    public string LivePlayStatus { get; private set; }="Live repeats Scan Hand automatically.";
+    public bool LiveNeedsWildColor { get; private set; }
+    public GameSessionState LiveSession => liveSession;
+    public IReadOnlyList<CardEntry> LiveLatestHand=>liveRound.Latest;
+    public int LiveCompletedRounds=>liveRound.CompletedRounds;
+    public bool CanToggleLive => LiveTracking || State!=ScanState.Scanning && !IsBusy && capture!=null && source!=null;
+    public float PreviewFramesPerSecond { get; private set; }
+    public int PreviewVersion { get; private set; }
+    public ScanPreviewFrame DisplayPreview => LiveTracking || State == ScanState.Scanning
+        ? (previewReady ? latestPreview : null)
+        : (State == ScanState.Reviewing || State == ScanState.Confirmed) && frozenReady ? frozenPreview : null;
+    public IReadOnlyList<LiveCardTracker.Snapshot> DisplayTracks => !LiveTracking &&
+        (State == ScanState.Reviewing || State == ScanState.Confirmed) ? frozenTracks : previewTracks;
+    public IReadOnlyList<LiveCardTracker.Detection> DisplayDetections => !LiveTracking &&
+        (State == ScanState.Reviewing || State == ScanState.Confirmed) ? frozenDetections : previewDetections;
+    public bool CanShowTrackingBoxes => DisplayPreview != null &&
+        (!LiveTracking && State != ScanState.Scanning ||
+         string.IsNullOrEmpty(LiveError) && Time.unscaledTime-DisplayPreview.CapturedAt < Mathf.Clamp(LastLatencyMs*.0025f+1f,3f,6f));
+
+    readonly LiveCardTracker previewTracker = new LiveCardTracker();
+    readonly StableHandEvidence handEvidence = new StableHandEvidence();
+    readonly LiveRetryPolicy liveRetry = new LiveRetryPolicy();
+    readonly LiveScanHandState liveRound=new LiveScanHandState();
+    GameSessionState liveSession;
+    TutorService liveTutor;
+    int liveRevision,liveRoundId,roundReplyCount;
+    float lastRoundReplyAt;
+    bool nextLiveFullRescan=true;
+    string liveFocusMode="initial acquisition";
+    float nextLivePlayLog;
+    string liveDiagnosticPath;
+    public string LivePlayDiagnostics=>liveRound.Diagnostics()+$" focus={liveFocusMode}; current round requests={requestCount}; state={State}";
+    ScanPreviewFrame pendingPreview = new ScanPreviewFrame(), latestPreview = new ScanPreviewFrame();
+    readonly ScanPreviewFrame frozenPreview = new ScanPreviewFrame();
+    IReadOnlyList<LiveCardTracker.Snapshot> previewTracks = Array.Empty<LiveCardTracker.Snapshot>();
+    IReadOnlyList<LiveCardTracker.Snapshot> frozenTracks = Array.Empty<LiveCardTracker.Snapshot>();
+    IReadOnlyList<LiveCardTracker.Detection> previewDetections = Array.Empty<LiveCardTracker.Detection>();
+    IReadOnlyList<LiveCardTracker.Detection> frozenDetections = Array.Empty<LiveCardTracker.Detection>();
+    bool previewReady, frozenReady;
+    int previewGeneration;
+    float previousPreviewTime = -1;
 
     /// <summary>Seconds the current round has been running. The panel ticks this while scanning.</summary>
     public float ScanElapsedSeconds =>
@@ -180,6 +226,8 @@ public class CardScanClient : MonoBehaviour
 
     void OnDestroy()
     {
+        previewGeneration++;
+        pendingPreview.Dispose(); latestPreview.Dispose(); frozenPreview.Dispose();
         if (watcher != null)
             watcher.Dispose();
     }
@@ -188,6 +236,24 @@ public class CardScanClient : MonoBehaviour
     {
         if (!scanEnabled || capture == null || source == null)
             return;
+
+        if (LiveTracking)
+        {
+            if(liveSession!=null && liveSession.Revision!=liveRevision)
+            {liveRound.ResetEvidence();liveRevision=liveSession.Revision;}
+            if(Time.unscaledTime>=nextLivePlayLog)
+            {
+                nextLivePlayLog=Time.unscaledTime+2f;
+                string diagnostic=LivePlayStatus+" | "+LivePlayDiagnostics;
+                Debug.Log("[LivePlay] "+diagnostic);AppendLiveDiagnostic(diagnostic);
+            }
+            if(!IsBusy && liveRetry.CanAttempt(Time.unscaledTime))
+            {
+                if(State!=ScanState.Scanning)BeginRound();
+                TickScanning();
+            }
+            return;
+        }
 
         switch (State)
         {
@@ -262,67 +328,146 @@ public class CardScanClient : MonoBehaviour
 
     IEnumerator ScanOneFrame()
     {
-        IsBusy = true;
-        lastRequestAt = Time.unscaledTime;
-
-        ScanTarget target = view is ScanPanel targetPanel ? targetPanel.ActiveTarget : ScanTarget.Hand;
-        if (!capture.CaptureForScan(target))
-        {
-            // The camera has not produced an image yet. Not a request, just wait for the next tick.
-            IsBusy = false;
-            yield break;
-        }
-
-        var frame = new ScanFrame
-        {
-            frameId = capture.LastFrameId,
-            texture = capture.LastTexture,
-            jpeg = capture.LastJpeg,
-            target = target,
-            crop = capture.LastScanCrop,
-            fullWidth = capture.LastTexture.width,
-            fullHeight = capture.LastTexture.height,
-            cropped = capture.LastScanCropped
-        };
-        LastCapturedFrameId = frame.frameId;
-
-        requestCount++;
-
-        CardScanResult result = default;
-        bool succeeded = false;
-        string failure = null;
-
+        IsBusy=true;lastRequestAt=Time.unscaledTime;int generation=previewGeneration;
         try
         {
-            yield return source.Scan(
-                frame,
-                value => { result = value; succeeded = true; },
-                error => { failure = error; });
+            // Live calls the ordinary Scan Hand capture and scan pipeline, with no extra crop,
+            // class filtering, hand-cluster filter, tracker gate or alternate request timing.
+            ScanTarget target=LiveTracking ? ScanTarget.Hand : view is ScanPanel panel ? panel.ActiveTarget : ScanTarget.Hand;
+            if(!capture.CaptureForScan(target))yield break;
+            float capturedAt=Time.unscaledTime;
+            var frame=new ScanFrame{frameId=capture.LastFrameId,texture=capture.LastTexture,jpeg=capture.LastJpeg,target=target,
+                crop=capture.LastScanCrop,fullWidth=capture.LastTexture.width,fullHeight=capture.LastTexture.height,cropped=capture.LastScanCropped};
+            LastCapturedFrameId=frame.frameId;pendingPreview.Capture(capture,target,capturedAt);requestCount++;
+            CardScanResult result=default;bool succeeded=false;string failure=null;
+            yield return source.Scan(frame,value=>{result=value;succeeded=true;},error=>failure=error);
+            if(generation!=previewGeneration)yield break;
+            if(!succeeded || result.frameId!=frame.frameId)
+            {
+                string error=!succeeded ? failure ?? "Unknown recognition error" : "Recognition frame ID mismatch.";
+                if(LiveTracking)MarkLiveFailure(error);else{LastError=error;SetState(ScanState.Error);Render();}yield break;
+            }
+            LastLatencyMs=result.latencyMs;LastNote=result.note;roundReplyCount++;lastRoundReplyAt=Time.unscaledTime;
+            if(LiveTracking){LiveError=null;liveRetry.Reset();}
+            if(target==ScanTarget.Hand && capture.handRoi!=null)capture.handRoi.RecordResult(result.cards);
+            PublishPreview(frame,capturedAt,result.cards);
+            int detected=result.cards!=null ? result.cards.Count : 0;
+            ApplyDetections(result.cards,latestPreview.Original);if(TryFreeze(detected))LogRound();
         }
-        finally
+        finally{IsBusy=false;}
+    }
+
+    void PublishPreview(ScanFrame frame,float capturedAt,List<CardEntry> cards)
+    {
+        var observations=new List<LiveCardTracker.Detection>();
+        if (cards!=null)
+            foreach (var card in cards)
+                if (card?.bbox!=null && card.bbox.Length>=4)
+                    observations.Add(new LiveCardTracker.Detection(card.DisplayName,card.confidence,
+                        new LiveCardTracker.Box(card.bbox[0],card.bbox[1],card.bbox[2],card.bbox[3])));
+        float diagonal=Mathf.Sqrt((float)frame.fullWidth*frame.fullWidth+(float)frame.fullHeight*frame.fullHeight);
+        if (!previewTracker.Update(frame.frameId,capturedAt,observations,Mathf.Max(10,diagonal*trackMatchFraction))) return;
+        previewTracks=previewTracker.Current;
+        previewDetections=observations.AsReadOnly();
+        ScanPreviewFrame old=latestPreview; latestPreview=pendingPreview; pendingPreview=old;
+        previewReady=true; PreviewVersion++;
+        if (previousPreviewTime>=0 && capturedAt>previousPreviewTime)
         {
-            // A source that throws must not leave the loop stuck for the rest of the session.
-            IsBusy = false;
+            float hz=1/(capturedAt-previousPreviewTime);
+            PreviewFramesPerSecond=PreviewFramesPerSecond>0 ? Mathf.Lerp(PreviewFramesPerSecond,hz,.3f) : hz;
         }
+        previousPreviewTime=capturedAt;
+    }
 
-        if (!succeeded)
+    void CompleteLiveHandRound(List<CardEntry> result,bool stableRound)
+    {
+        liveRound.ObserveRound(++liveRoundId,result,liveSession,liveTutor!=null ? liveTutor.ruleSet : null,stableRound);
+        nextLiveFullRescan=liveRound.RequiresFullRescan;
+        if(capture!=null && capture.handRoi!=null && previewReady)
+            capture.handRoi.AcceptLiveRound(result,latestPreview.Width,latestPreview.Height,liveRound.FocusQualityPassed);
+        liveRevision=liveSession!=null ? liveSession.Revision : -1;
+        Cards.Clear();if(liveRound.Latest!=null)Cards.AddRange(liveRound.Latest);
+        if(previewReady)
         {
-            LastError = failure ?? "Unknown error";
-            SetState(ScanState.Error);
-            Render();
-            yield break;
+            frozenPreview.CopyFrom(latestPreview);frozenReady=true;frozenTracks=previewTracks;
+            frozenDetections=previewDetections;lastFrame=frozenPreview.Original;
         }
+        LiveNeedsWildColor=liveRound.NeedsWildColor;LivePlayStatus=liveRound.Message;
+        handEvidence.Reset(SessionKeys());
+        SetState(ScanState.Confirmed);PreviewVersion++;Render();
+        if(liveTutor!=null)liveTutor.Evaluate();
+        AppendLiveDiagnostic("Completed | "+LivePlayStatus+" | "+LivePlayDiagnostics);
+    }
+    List<string> SessionKeys()
+    {
+        if(liveSession==null || !liveSession.HasHand)return null;
+        var keys=new List<string>();foreach(var card in liveSession.Hand)keys.Add(UnoCardKey.For(card.color,card.value));return keys;
+    }
+    public bool TryCommitLivePlay(string wildColor=null)
+    {
+        if(!LiveTracking || !liveRound.TryChooseWild(liveSession,wildColor,liveTutor!=null ? liveTutor.ruleSet : null))return false;
+        liveRevision=liveSession.Revision;LiveNeedsWildColor=liveRound.NeedsWildColor;LivePlayStatus=liveRound.Message;
+        handEvidence.Reset(SessionKeys());if(liveTutor!=null)liveTutor.Evaluate();Render();return true;
+    }
+    public void UndoLivePlay()
+    {
+        if(!LiveTracking || liveSession==null || !liveSession.TryUndoPlay())return;
+        liveRound.RestoreDisplay(liveSession);liveRevision=liveSession.Revision;
+        Cards.Clear();Cards.AddRange(liveRound.Latest);handEvidence.Reset(SessionKeys());
+        LiveNeedsWildColor=false;LivePlayStatus=liveRound.Message;PreviewVersion++;
+        if(liveTutor!=null)liveTutor.Evaluate();Render();
+    }
+    void MarkLiveFailure(string error)
+    {
+        LiveError=error;liveRetry.Fail(Time.unscaledTime);handEvidence.MarkUnavailable();
+        liveRound.Interrupt("Scan interrupted; latest hand retained. Retrying automatically.");
+        LiveNeedsWildColor=false;LivePlayStatus=liveRound.Message;LastError=error;SetState(ScanState.Error);Render();
+    }
+    public bool ToggleLiveTracking(GameSessionState session=null,TutorService tutor=null)
+    {
+        if(LiveTracking){StopLiveTracking();return true;}
+        if(State==ScanState.Scanning || IsBusy || capture==null || source==null)return false;
+        LiveTracking=true;LiveError=null;liveRetry.Reset();liveRound.Reset();liveRoundId=0;nextLiveFullRescan=true;
+        liveSession=session!=null ? session : (view as ScanPanel)?.session;
+        if(liveSession==null)liveSession=GetComponent<GameSessionState>();
+        liveTutor=tutor!=null ? tutor : (view as ScanPanel)?.tutor;
+        liveRevision=liveSession!=null ? liveSession.Revision : -1;handEvidence.Reset(SessionKeys());
+        LiveNeedsWildColor=false;LivePlayStatus=liveRound.Message;
+        BeginLiveDiagnostic();nextLivePlayLog=0;scanEnabled=true;BeginRound();return true;
+    }
+    public void StopLiveTracking()
+    {
+        if(!LiveTracking)return;
+        AppendLiveDiagnostic("Stopped | "+LivePlayDiagnostics);
+        previewGeneration++;LiveTracking=false;scanEnabled=false;LiveError=null;PreviewVersion++;liveRetry.Reset();
+        LiveNeedsWildColor=false;SetState(ScanState.Confirmed);
+        if(watcher!=null)watcher.Reset();Render();
+    }
+    void OnApplicationPause(bool paused){if(paused)StopLiveTracking();}
 
-        LastLatencyMs = result.latencyMs;
-        LastNote = result.note;
-
-        int detected = result.cards != null ? result.cards.Count : 0;
-        if (target == ScanTarget.Hand && capture.handRoi != null)
-            capture.handRoi.RecordResult(result.cards);
-        ApplyDetections(result.cards, capture.LastTexture);
-
-        if (TryFreeze(detected))
-            LogRound();
+    void BeginLiveDiagnostic()
+    {
+        liveDiagnosticPath=null;
+        if(!Application.isPlaying)return;
+        try
+        {
+            liveDiagnosticPath=System.IO.Path.Combine(Application.persistentDataPath,"LivePlayDiagnostics.log");
+            if(System.IO.File.Exists(liveDiagnosticPath))System.IO.File.Copy(liveDiagnosticPath,liveDiagnosticPath+".previous",true);
+            System.IO.File.WriteAllText(liveDiagnosticPath,"Live play diagnostics; local state only, no images or credentials.\n");
+            AppendLiveDiagnostic("Started | "+LivePlayDiagnostics);
+        }
+        catch(Exception error){liveDiagnosticPath=null;Debug.LogWarning("[LivePlay] Local diagnostics unavailable: "+error.Message);}
+    }
+    void AppendLiveDiagnostic(string line)
+    {
+        if(string.IsNullOrEmpty(liveDiagnosticPath))return;
+        try
+        {
+            if(new System.IO.FileInfo(liveDiagnosticPath).Length>128*1024)
+            {System.IO.File.Copy(liveDiagnosticPath,liveDiagnosticPath+".previous",true);System.IO.File.WriteAllText(liveDiagnosticPath,"");}
+            System.IO.File.AppendAllText(liveDiagnosticPath,DateTime.UtcNow.ToString("O")+" "+line+"\n");
+        }
+        catch(Exception){liveDiagnosticPath=null;}
     }
 
     // ------------------------------------------------------------------ tracks
@@ -472,6 +617,12 @@ public class CardScanClient : MonoBehaviour
             watcher.Reset();
 
         var frozen = BuildResultCards();
+        if(LiveTracking)
+        {
+            if(roundReplyCount==0 || Time.unscaledTime-lastRoundReplyAt>Mathf.Max(3,requestInterval*2))
+            {MarkLiveFailure("Camera/recognition unavailable; incomplete scan does not count as a missing-hand round.");return;}
+            CompleteLiveHandRound(frozen,!unstable);return;
+        }
 
         if (frozen.Count == 0)
         {
@@ -483,7 +634,12 @@ public class CardScanClient : MonoBehaviour
 
         Cards.Clear();
         Cards.AddRange(frozen);
-        lastFrame = capture != null ? capture.LastTexture : null;
+        if (previewReady)
+        {
+            frozenPreview.CopyFrom(latestPreview); frozenReady=true;
+            frozenTracks=previewTracks; frozenDetections=previewDetections;
+        }
+        lastFrame = frozenReady ? frozenPreview.Original : null;
         Notice = unstable ? "Stopped early - the picture never settled." : null;
 
         SetState(ScanState.Reviewing);
@@ -547,7 +703,7 @@ public class CardScanClient : MonoBehaviour
     /// <summary>True only when a new round was accepted. Rejected requests leave the draft intact.</summary>
     public bool TryRescan()
     {
-        if (State == ScanState.Scanning || IsBusy)
+        if (LiveTracking || State == ScanState.Scanning || IsBusy)
             return false;
 
         if (Time.unscaledTime - lastRescanAt < rescanCooldownSeconds)
@@ -569,7 +725,7 @@ public class CardScanClient : MonoBehaviour
     /// <summary>Freezes the current list for good.</summary>
     public void Confirm()
     {
-        if (State != ScanState.Reviewing || Cards.Count == 0)
+        if (LiveTracking || State != ScanState.Reviewing || Cards.Count == 0)
             return;
 
         SetState(ScanState.Confirmed);
@@ -579,14 +735,29 @@ public class CardScanClient : MonoBehaviour
 
     void BeginRound()
     {
-        if (capture != null && capture.handRoi != null) capture.handRoi.ResetRound();
+        previewTracker.ExpirySeconds=1.2f;previewTracker.LabelAwareAssociation=false;
+        previewGeneration++; if(!LiveTracking){previewReady=false;frozenReady=false;}
+        previewTracker.Reset();
+        if(!LiveTracking){previewTracks=Array.Empty<LiveCardTracker.Snapshot>();previewDetections=Array.Empty<LiveCardTracker.Detection>();}
+        previousPreviewTime=-1;
+        PreviewFramesPerSecond=0; PreviewVersion++;
+        if (capture != null && capture.handRoi != null)
+        {
+            if(LiveTracking)
+            {
+                bool reset=nextLiveFullRescan || !capture.handRoi.HasLiveFocus;
+                capture.handRoi.BeginLiveRound(reset);
+                liveFocusMode=reset ? "full acquisition" : "following last reliable hand";
+                nextLiveFullRescan=false;
+            }
+            else capture.handRoi.ResetRound();
+        }
         // Confirmed session data is stored independently; this list is only the new draft.
-        Cards.Clear();
-        lastFrame = null;
+        if(!LiveTracking){Cards.Clear();lastFrame=null;}
         LastCapturedFrameId = 0;
         tracks.Clear();
         activeCountHistory.Clear();
-        requestCount = 0;
+        requestCount = 0;roundReplyCount=0;lastRoundReplyAt=-999;
         lastNewTrackRequest = -999;
         lastRequestAt = -999f;
         scanStartedAt = Time.unscaledTime;

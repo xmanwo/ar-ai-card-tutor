@@ -387,7 +387,7 @@ public class HandRescanHud : MonoBehaviour
         if (button == null || client == null)
             return;
 
-        bool blocked = client.State == ScanState.Scanning;
+        bool blocked = client.LiveTracking || client.IsBusy || client.State == ScanState.Scanning;
         if (button.interactable == blocked)
             button.interactable = !blocked;
     }

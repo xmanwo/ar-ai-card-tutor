@@ -67,9 +67,67 @@ also needs its active colour selected. Confirmed results stay frozen until Resca
 - Auto focus uses tracked palms to choose a nearby card-corner cluster. The cluster
   determines crop size; head/hand tracking follows its movement. Left, Right and Off
   remain optional overrides. Missing tracking, empty crops and tracking jumps recover
-  through full-frame recognition. This is still a manual scan, not continuous game tracking.
+  through full-frame recognition.
+- **Live = repeated Scan Hand.** Press **Start Live**; no Scan Hand / Confirm
+  prerequisite is needed. Live repeatedly executes the ordinary Scan Hand round:
+  the same capture, hand-ROI selection, JPEG, server request, per-card association,
+  multi-frame class votes, expiry, minimum duration and stable-freeze checks. A new
+  round begins automatically after the previous round finishes. There is no separate
+  single-frame hand filter, palm prerequisite or scheduled full-frame probe. After
+  reliable acquisition, the next round carries the existing hand-focus context instead
+  of clearing it. Normal Scan Hand parameters apply (0.3-second request interval, at least
+  1.5 seconds and at most 8 seconds / 25 requests per round by default).
+- **Reliable focus continuity:** initial focus is carried only after a normally settled
+  (not timed-out) complete scan with valid faces and at least 80% of cards free of
+  low-confidence/low-vote flags. Later weak rounds keep the previous trusted region;
+  they do not replace its geometry. Tracked palm position/scale moves the learned
+  envelope with the hand. If hand tracking is temporarily unavailable, its last
+  reliable image region is retained; RGB card bounds can also establish the region.
+  Empty individual replies do not clear Live focus or trigger full-frame discovery.
+- **Full reacquisition threshold:** a complete scan missing/changing at least two
+  previously reliable cards schedules the next round to restart from a full image.
+  Only the old-card deficit is counted: drawing any number of additional cards alone
+  does not trigger this reset, and new cards do not cancel two lost old cards. Repeated
+  faces count by multiplicity. One missing/changed card continues following; a legal
+  play removes that card from the tracking reference. An unreliable initial scan does
+  not establish the reference, so a later reliable scan can still acquire it. After
+  full reacquisition succeeds, following resumes. Explicit hand-mode changes and a
+  camera image-size change invalidate incompatible geometry; Crop Off stays full-frame.
+- The **overlapping card fan displays the latest completed Scan Hand result**,
+  including duplicate faces and the same uncertainty flags as the manual scan.
+  Intermediate replies do not redraw the fan; the previous result remains while the
+  next round scans. Original/cropped photographs remain on the left and use the
+  ordinary Scan Hand capture. Debug Tracks / Detections remains optional; every Live
+  start defaults to card view. Stop Live ends automatic rescanning.
+- The first completed hand scan establishes the session inventory. A newly recognized
+  extra card in a larger scan is recorded as **drawing**, preserving existing card IDs.
+  Re-observing an already held card does not add another copy. Same-sized label changes
+  update the displayed latest result but are not treated as a draw or a play.
+- A card absent in **two consecutive completed Scan Hand rounds** counts as played
+  only when `StandardUnoRules` says it is legal against the known top, active colour,
+  full current hand and configured `RuleSet` (including the +4 restriction). This is
+  a round count, not a two-second timer and not two individual HTTP replies. Seeing
+  the card in an intervening completed round clears the missing count. Failed requests
+  and camera-unavailable rounds clear pending evidence rather than counting as missing.
+  Successful empty scans can detect the final card. One eligible play is committed
+  per completed round; repeated identical faces retain separate counts.
+- The latest fan may show fewer cards before a play is registered: the first missing
+  round is displayed immediately, while the inventory/history wait for the second
+  round and rules. Illegal disappearances are reported and are **not** appended to
+  the discard pile. A known top card and active colour are required for legality;
+  without them Live still scans/displays hands but does not invent a legal play.
+  Use the existing Scan Discard workflow to establish the top before Live.
+- A verified play removes one inventory card and appends its texture to **Discard
+  pile · Played** atomically. Wild plays request an explicit active colour before
+  committing. **Undo last play** restores hand/history/top and the displayed draft;
+  return the physical card too. Network failures retain the latest result and retry
+  automatically after 1, 2, 4, then at most 5 seconds. Bounded local
+  `LivePlayDiagnostics.log` files record completed rounds, draws and missing-round
+  streaks without photos or credentials. The earlier frame/motion-based Live helpers
+  remain in source for historical regression checks; the active Live flow does not
+  call them. Full turn ownership/opponent turn flow is not implemented.
 - Explain / Give a hint request a DeepSeek explanation through the PC service. The
-  local rules engine remains authoritative. API keys are prompted locally, never
+  local rules engine controls legal-play registration and supplies advice. API keys are prompted locally, never
   stored in Unity assets, and no model request is made until an AI button is used.
 
 ### PC service and USB
@@ -102,10 +160,32 @@ are also excluded. Card-face PNG assets include their CC0 licence and source man
 The current hand focus geometry/selection suite has 76 offline checks. Runtime,
 editor and Android conditional C# compilation passed locally. The PC API and
 recognition geometry have offline regression tests in `tools/test_*.py`.
+`tools/LiveTrackingChecks.cs` adds 43 offline tracking/overlay checks. The Editor
+menu **Tools → AR AI Card Tutor → Check live preview isolation** checks actual
+texture copies, preview UI and confirmation isolation without a headset or API call.
+The repeated-Scan-Hand implementation passes runtime, Editor and Android conditional
+compilation and 88 round/draw/rules/focus checks (`tools/LiveScanHandChecks.cs`). These cover
+initial acquisition, latest-result publication, first vs second missing rounds,
+intervening recovery, duplicate faces, draws, unchanged-count label changes, unknown
+top rejection, failed scans, Wild colour, configured +4 rules and Undo. The separate
+legacy-verifier/session suite (`tools/LivePlayChecks.cs`) still passes 94 checks.
+The updated Unity menu fixture replays the identical replies through manual Scan Hand
+and Live, compares their complete results including low-confidence/repeated faces,
+and checks the actual latest-result fan, preserved photos, drawing, two-round legal
+plays, illegal-play rejection, Undo, retry and card-view defaults. It also verifies
+quality-gated focus acquisition, retention across rounds/brief missing tracking,
+no reset on drawing or a single missing card, and full reacquisition after two changes. All 31 native Unity checks passed locally. It makes no camera,
+server or paid API request. Its latest execution report is local under
+`output/live_tracking/unity_smoke.json`.
+
+The new loop needs Build And Run and a Quest test. Offline round parity does not
+establish perfect real-world CV accuracy. Each hand update now takes a complete ordinary
+Scan Hand round; two missing rounds may take several seconds. Long occlusion spanning
+two successful rounds can count as disappearance when the card is legal.
 
 The trained candidate improves the labels recovered on a development hand photo,
 but public-test mAP50-95 regressed. Wild misses and opposite-corner duplicate counts
 remain observable. Focus fitting was replayed on a saved Quest frame using a supplied
 palm position; the latest adaptive focus still needs an updated-APK device test.
-Do not interpret detection count as perfect card recognition. Turn history, automatic
-play/draw events and continuous full-game recognition are not implemented.
+Do not interpret detection count as perfect card recognition. Live play detection
+needs updated-APK testing on Quest. Persistent visual mistakes can still require Undo. Full-game turn flow and automatic draw events are not implemented.

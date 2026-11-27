@@ -9,20 +9,24 @@ public class ScanCropOverlay : MonoBehaviour
     RectTransform border;
     readonly Image[] edges = new Image[4];
 
-    public void Show(FrameCapture capture, RawImage photo)
+    public void Show(ScanPreviewFrame frame, RawImage photo)
     {
-        bool visible = capture != null && photo != null && photo.enabled &&
-            photo.texture != null && photo.texture == capture.LastTexture;
+        bool visible = frame != null && photo != null && photo.enabled &&
+            photo.texture != null && photo.texture == frame.Original;
+        ShowRegion(frame,photo,frame!=null ? frame.Crop : default,visible,frame!=null && frame.Cropped ? Focused : FullFrame);
+    }
+    public void ShowRegion(ScanPreviewFrame frame,RawImage photo,HandCropGeometry.Crop crop,bool visible,Color color)
+    {
+        visible=visible && frame!=null && photo!=null && photo.enabled && photo.texture==frame.Original;
         if (border == null && visible) Build();
         if (border == null) return;
         border.gameObject.SetActive(visible);
         if (!visible) return;
-        var crop = capture.LastScanCrop;
         float width = photo.texture.width, height = photo.texture.height;
         border.anchorMin = new Vector2(crop.X / width, 1f - (crop.Y + crop.Height) / height);
         border.anchorMax = new Vector2((crop.X + crop.Width) / width, 1f - crop.Y / height);
         border.offsetMin = border.offsetMax = Vector2.zero;
-        foreach (var edge in edges) edge.color = capture.LastScanCropped ? Focused : FullFrame;
+        foreach (var edge in edges) edge.color = color;
     }
 
     void Build()

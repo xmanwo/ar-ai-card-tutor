@@ -50,6 +50,9 @@ public class FrameCapture : MonoBehaviour
     public HandCropGeometry.Crop LastScanCrop { get; private set; }
     public bool LastScanCropped { get; private set; }
     public string LastCropNote { get; private set; } = "Full frame";
+    public Pose LastHeadPose { get; private set; }
+    public bool LastHeadTracked { get; private set; }
+    public RgbViewProjection LastRgbProjection { get; private set; }
     Texture2D cropTexture;
 
     int nextFrameId = 1;
@@ -68,9 +71,9 @@ public class FrameCapture : MonoBehaviour
     /// Grab a frame for the scan loop. Stays in memory: a round takes up to 25 of these and the
     /// headset should not end up with a photo album of them.
     /// </summary>
-    public bool CaptureForScan(ScanTarget target = ScanTarget.Hand)
+    public bool CaptureForScan(ScanTarget target = ScanTarget.Hand,HandCropGeometry.Crop? region = null,bool fullScene=false)
     {
-        return CaptureFrame(saveToDisk: false, quality: scanJpegQuality, target: target);
+        return CaptureFrame(saveToDisk: false, quality: scanJpegQuality, target: target,region:region,fullScene:fullScene);
     }
 
     /// <summary>Grab a frame and keep it on disk. Used for collecting pictures behind bad results.</summary>
@@ -87,7 +90,7 @@ public class FrameCapture : MonoBehaviour
         return ok;
     }
 
-    bool CaptureFrame(bool saveToDisk, int quality, ScanTarget target = ScanTarget.Hand)
+    bool CaptureFrame(bool saveToDisk, int quality, ScanTarget target = ScanTarget.Hand,HandCropGeometry.Crop? region=null,bool fullScene=false)
     {
         if (cameraManager == null)
         {
@@ -100,6 +103,10 @@ public class FrameCapture : MonoBehaviour
 
         using (image)
         {
+            LastHeadTracked=HandRoiProvider.TryGetTrackedHead(out var headPose);LastHeadPose=headPose;
+            LastRgbProjection=handRoi!=null && handRoi.TryGetRgbProjection(cameraManager,image.width,image.height,out var rgb) ? rgb : default;
+            if(region.HasValue && (region.Value.X<0 || region.Value.Y<0 || region.Value.Width<128 || region.Value.Height<128 ||
+                region.Value.X+region.Value.Width>image.width || region.Value.Y+region.Value.Height>image.height))return false;
             // Full native resolution: the model needs the detail, so the JPEG is not downscaled.
             if (LastTexture == null || LastTexture.width != image.width || LastTexture.height != image.height)
             {
@@ -123,6 +130,10 @@ public class FrameCapture : MonoBehaviour
                 : new HandCropGeometry.Crop(0, 0, image.width, image.height);
             LastScanCropped = !saveToDisk && handRoi != null && handRoi.LastCropped;
             LastCropNote = !saveToDisk && handRoi != null ? handRoi.LastNote : "Full frame · Photo";
+            if(region.HasValue)
+            {LastScanCrop=region.Value;LastScanCropped=true;LastCropNote="Table verification · Dedicated region";}
+            if(region.HasValue && target==ScanTarget.Hand)LastCropNote="Live · Following cards · Recognition input";
+            if(fullScene){LastScanCrop=new HandCropGeometry.Crop(0,0,image.width,image.height);LastScanCropped=false;LastCropNote="Live · Whole-scene recovery";}
         }
 
         Texture2D upload = LastTexture;
